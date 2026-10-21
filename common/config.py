@@ -1,10 +1,10 @@
 # ---- EDIT THESE TWO LINES ON ALL 3 MACHINES (use `ipconfig` to find them) ----
-#X_IP = "192.168.1.10"   # desktop  (cloud X)
-#Y_IP = "192.168.1.11"   # laptop A (edge gateway Y)
+X_IP = "192.168.1.10"   # desktop  (cloud X)
+Y_IP = "192.168.1.11"   # laptop A (edge gateway Y)
 
 #testing on my local machine, so I just use localhost for both
-X_IP = "127.0.0.1"
-Y_IP = "127.0.0.1"
+#X_IP = "127.0.0.1"
+#Y_IP = "127.0.0.1"
 # ------------------------------------------------------------------------------
 
 X_PORT, Y_PORT_Z, Y_PORT_DASH = 8001, 8000, 8002
