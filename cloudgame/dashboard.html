@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Cloud gaming dashboard</title>
+<body style="font-family:Consolas,monospace;font-size:18px;padding:20px">
+<h2>Active node: <span id="mode" style="padding:2px 12px;border-radius:6px">?</span></h2>
+<div>RTT X&harr;Y: <b id="rtt">-</b> ms &nbsp;|&nbsp; X lag: <b id="lag">-</b> ticks &nbsp;|&nbsp; input&rarr;display (Z): <b id="e2e">-</b> ms</div>
+<br>
+<div>Injected X&harr;Y latency (RTT):
+  <input type="range" min="0" max="400" value="0" id="slider" style="width:360px">
+  <b id="d">0</b> ms</div>
+<script>
+const ip = prompt("IP address of Y (laptop A):", "192.168.1.11");
+const ws = new WebSocket("ws://" + ip + ":8002");
+const $ = id => document.getElementById(id);
+let init = false;
+ws.onmessage = e => {
+  const s = JSON.parse(e.data);
+  if (!init) { $("slider").value = s.delay_ms; $("d").textContent = s.delay_ms; init = true; }
+  $("mode").textContent = s.mode === "X" ? "CLOUD X" : "EDGE Y";
+  $("mode").style.background = s.mode === "X" ? "#7bd88f" : "#ffb347";
+  $("rtt").textContent = s.rtt.toFixed(0);
+  $("lag").textContent = s.lag;
+  $("e2e").textContent = s.e2e.toFixed(0);
+};
+$("slider").oninput = () => { $("d").textContent = $("slider").value; ws.send(JSON.stringify({delay_ms: +$("slider").value})); };
+</script>
+</body>
