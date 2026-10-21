@@ -1,0 +1,4 @@
+# Tested on Windows with Python 3.13.9. Use the SAME versions on all 3 machines.
+pygame==2.6.1
+Pillow==11.3.0
+websockets==15.0.1

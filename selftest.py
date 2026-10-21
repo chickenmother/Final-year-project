@@ -1,12 +1,19 @@
 """Run on X and on Y (python selftest.py). The printed hash MUST be identical on both machines."""
-import hashlib, json
+import hashlib, json, platform, socket, sys
 from common.game import Game
+import pygame
+import PIL
+import websockets
 
 def script(i):
     return ("d" if i % 120 < 60 else "a") + ("w" if i % 200 < 100 else "s") + (" " if i % 15 == 0 else "")
 
 def digest(g):
     return hashlib.md5(json.dumps(g.snapshot(), sort_keys=True).encode()).hexdigest()
+
+print("host:", socket.gethostname(), "|", platform.platform())
+print("python", sys.version.split()[0], "| pygame", pygame.version.ver,
+      "| pillow", PIL.__version__, "| websockets", websockets.__version__)
 
 g = Game()
 mid = None

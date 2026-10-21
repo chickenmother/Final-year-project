@@ -4,24 +4,52 @@
 <body style="font-family:Consolas,monospace;font-size:18px;padding:20px">
 <h2>Active node: <span id="mode" style="padding:2px 12px;border-radius:6px">?</span></h2>
 <div>RTT X&harr;Y: <b id="rtt">-</b> ms &nbsp;|&nbsp; X lag: <b id="lag">-</b> ticks &nbsp;|&nbsp; input&rarr;display (Z): <b id="e2e">-</b> ms</div>
+<div>Cloud X link: <b id="link">-</b> &nbsp;|&nbsp; dashboard: <b id="dash">connecting</b></div>
 <br>
 <div>Injected X&harr;Y latency (RTT):
   <input type="range" min="0" max="400" value="0" id="slider" style="width:360px">
   <b id="d">0</b> ms</div>
 <script>
-const ip = prompt("IP address of Y (laptop A):", "192.168.1.11");
-const ws = new WebSocket("ws://" + ip + ":8002");
-const $ = id => document.getElementById(id);
-let init = false;
-ws.onmessage = e => {
-  const s = JSON.parse(e.data);
-  if (!init) { $("slider").value = s.delay_ms; $("d").textContent = s.delay_ms; init = true; }
-  $("mode").textContent = s.mode === "X" ? "CLOUD X" : "EDGE Y";
-  $("mode").style.background = s.mode === "X" ? "#7bd88f" : "#ffb347";
-  $("rtt").textContent = s.rtt.toFixed(0);
-  $("lag").textContent = s.lag;
-  $("e2e").textContent = s.e2e.toFixed(0);
-};
-$("slider").oninput = () => { $("d").textContent = $("slider").value; ws.send(JSON.stringify({delay_ms: +$("slider").value})); };
+// Open dashboard.html?ip=192.168.0.181  (Middle Y's LAN address)
+(() => {
+  const qs = new URLSearchParams(location.search);
+  const ip = qs.get("ip") || prompt("IP address of Y (edge gateway):", "192.168.0.181");
+  const $ = id => document.getElementById(id);
+  if (!ip) {
+    document.body.innerHTML = "<h2>No Y address given. Open dashboard.html?ip=&lt;Y_IP&gt;</h2>";
+    return;
+  }
+  let ws, init = false;
+
+  function connect() {
+    ws = new WebSocket("ws://" + ip + ":8002");
+    ws.onopen = () => { $("dash").textContent = "connected"; $("dash").style.color = "#2e7d32"; };
+    ws.onmessage = e => {
+      const s = JSON.parse(e.data);
+      if (!init) { $("slider").value = s.delay_ms; $("d").textContent = s.delay_ms; init = true; }
+      $("mode").textContent = s.mode === "X" ? "CLOUD X" : "EDGE Y";
+      $("mode").style.background = s.mode === "X" ? "#7bd88f" : "#ffb347";
+      $("rtt").textContent = s.rtt.toFixed(0);
+      $("lag").textContent = s.lag;
+      $("e2e").textContent = s.e2e.toFixed(0);
+      $("link").textContent = s.linked ? "up" : "DOWN";
+      $("link").style.color = s.linked ? "#2e7d32" : "#c62828";
+    };
+    ws.onclose = () => {
+      $("dash").textContent = "disconnected - retrying";
+      $("dash").style.color = "#c62828";
+      $("link").textContent = "-";
+      setTimeout(connect, 1000);
+    };
+    ws.onerror = () => ws.close();
+  }
+
+  $("slider").oninput = () => {
+    $("d").textContent = $("slider").value;
+    if (ws && ws.readyState === WebSocket.OPEN)
+      ws.send(JSON.stringify({ delay_ms: +$("slider").value }));
+  };
+  connect();
+})();
 </script>
 </body>
