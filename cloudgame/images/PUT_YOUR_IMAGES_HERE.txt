@@ -1,3 +1,0 @@
-Copy these 4 files from your Space_2D_Shotting_Game repo's "images" folder into this folder
-(required on X and Y; Z does not need them):
-  background.png   bullet.png   player.jpg   rock.png
