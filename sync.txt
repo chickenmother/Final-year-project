@@ -1,0 +1,178 @@
+SYNC LOG — shared notes between Cloud X / Middle Y / End Z
+File created : 2026-11-03 12:32 +09:00   (from Y)
+Last updated : 2026-11-03 12:38 +09:00   (from Y)
+
+Repo   : https://github.com/chickenmother/Final-year-project.git
+Branch : feature/Cloud_X
+HEAD   : 73afaa6  "Enhance latency monitoring and configuration..."
+
+====================================================================
+1. MACHINE ROLES / ADDRESSES
+====================================================================
+[2026-11-03 | from X, relayed by user]
+  host Chicken_Mother, Windows 11 build 26200, LAN 192.168.0.181
+  Python 3.13.9 | pygame 2.6.1 | Pillow 11.3.0 | websockets 15.0.1
+
+[2026-11-03 12:35 +09:00 | from Y]
+  host andoryuuuspc (this laptop)
+  Wi-Fi 192.168.0.17/24, gateway 192.168.0.1, Wi-Fi profile = Public
+  Tailscale 1.104.4, IP 100.78.193.29, account as04117sky@
+  Python 3.10.5 (NOT yet matched to X)
+  venv: pygame 2.6.1 | Pillow 12.3.0 | websockets 16.1.1
+
+[2026-11-03 12:35 +09:00 | from Y]
+  End Z: weaker laptop, not set up yet.
+  Z needs only pygame + websockets (no Pillow, no images).
+  Ports: X 8001 (Y->X) | Y 8000 (Z->Y) | Y 8002 (dashboard)
+
+====================================================================
+2. VERIFIED WORKING
+====================================================================
+[2026-11-03 12:29 +09:00 | from Y]
+  TCP 192.168.0.181:8001      -> OPEN in 25 ms
+  ws://192.168.0.181:8001     -> WebSocket handshake OK
+  .\run_y.cmd 192.168.0.181   -> connected
+    stdout: "Y ready: Z -> ws://192.168.0.17:8000  dashboard -> ws://192.168.0.17:8002"
+            "connected to X at ws://192.168.0.181:8001"
+    log_y.csv: mode=X, rtt_ms ~11-13, e2e=0 (no Z), x_link=1
+
+[2026-11-03 (time not recorded) | from X, relayed by user]
+  python 3.13.9 | pygame 2.6.1 | pillow 11.3.0 | websockets 15.0.1
+  ticks 3000 score 46 deaths 42
+  hash 30f043222e75fabf0ec80d2cd7edf6df
+  resync OK
+  render bytes: 43002 (X) 8027 (Y)
+
+[2026-11-03 (earlier, before the 73afaa6 pull) | from Y]
+  selftest on Python 3.10.5 produced the SAME hash and render bytes as X.
+  Environment still differs; re-check after upgrading Y to 3.13.9.
+
+[2026-11-03 12:27 +09:00 | from Y]
+  ping 192.168.0.181 times out because ICMP is blocked. This is normal.
+  Use Test-NetConnection on port 8001, not ping.
+
+====================================================================
+3. CURRENT BLOCKER: "x-home" DOES NOT RESOLVE
+====================================================================
+[2026-11-03 12:34 +09:00 | from Y]
+  Symptom: .\run_y.cmd x-home fails; log_y.csv shows
+           mode=Y, rtt_ms=0, x_link=0 (Y stays in edge fallback).
+  Diagnostics run on Y:
+    tailscale ip -4                  -> 100.78.193.29
+    tailscale status                 -> only "andoryuuuspc" (no peers)
+    Resolve-DnsName x-home           -> no result
+    Test-NetConnection x-home -Port 8001 -> False
+  Cause: x-home is a Tailscale MagicDNS name. X is not on this tailnet
+         yet, or uses a different device name/account, or MagicDNS is off.
+
+[2026-11-03 12:34 +09:00 | from Y — fix plan]
+  1) Install Tailscale on X, sign in to the SAME account.
+  2) Name the device "x-home"; enable MagicDNS; disable key expiry.
+  3) On X: tailscale up ; tailscale ip -4 ; tailscale status
+  4) From Y: tailscale status (x-home must appear),
+     Resolve-DnsName x-home,
+     Test-NetConnection x-home -Port 8001  (must be True).
+  5) Allow inbound TCP 8001 on X's Tailscale adapter (Private / Any).
+  6) .\run_y.cmd x-home
+  Until then use the LAN address: .\run_y.cmd 192.168.0.181
+
+====================================================================
+4. CHANGES MADE IN THIS SESSION
+====================================================================
+[2026-11-03 | from Y]
+  - Created .gitignore (venv, __pycache__, *.pyc, log_*.csv, .env*, IDE/OS)
+    and verified with git check-ignore.
+  - Created/maintained README.md (architecture, message flow, prerequisites,
+    quick start, dashboard, latency injection, self-test, logs, config, WAN).
+  - Flattened the project: cloudgame/* moved to the repo root; cloudgame/
+    deleted. common/game.py resolves images/ from its own file, so this works.
+  - Removed references to the deleted images/PUT_YOUR_IMAGES_HERE.txt.
+  - Pulled desktop work (HEAD 73afaa6): FYP_* env config, run_*.cmd launchers,
+    reconnect logic, lan_ip(), Z-side RTT probe, X logging, WAN/Tailscale docs.
+  - Installed Tailscale 1.104.4 on Y; logged in as 100.78.193.29.
+  - LAN X<->Y tested successfully with the new code.
+  - Temporary files from tests: y_test.out/err, ts_up.out/err
+    (safe to delete; ts_up.err holds an expired auth link).
+
+[2026-11-03 12:35 +09:00 | from Y]
+  Current top-level layout:
+    .gitignore  README.md  requirements.txt  sync.txt
+    run_x.cmd  run_y.cmd  run_z.cmd
+    x_server.py  y_gateway.py  z_client.py  selftest.py  dashboard.html
+    common/  images/  venv/
+    log_y.csv  log_z.csv  (runtime output, git-ignored)
+
+====================================================================
+5. ENVIRONMENT MISMATCH (TODO)
+====================================================================
+[2026-11-03 12:35 +09:00 | from Y]
+  Y: Python 3.10.5, Pillow 12.3.0, websockets 16.1.1
+  X: Python 3.13.9, Pillow 11.3.0, websockets 15.0.1
+  requirements.txt pins: pygame==2.6.1, Pillow==11.3.0, websockets==15.0.1
+  Decision: MATCH X (not the absolute newest) for determinism.
+
+[2026-11-03 12:35 +09:00 | from Y - commands to run on Y]
+  winget install --id Python.Python.3.13 --version 3.13.9 --exact
+  Remove-Item -Recurse -Force venv
+  py -3.13 -m venv venv
+  .\venv\Scripts\Activate.ps1
+  python -m pip install --upgrade pip
+  python -m pip install -r requirements.txt
+  python selftest.py
+  Expected: 3.13.9 / 2.6.1 / 11.3.0 / 15.0.1,
+            hash 30f043222e75fabf0ec80d2cd7edf6df, resync OK,
+            render bytes 43002 / 8027.
+
+====================================================================
+6. NETWORK / FIREWALL
+====================================================================
+[2026-11-03 12:35 +09:00 | from Y]
+  Y Wi-Fi profile is Public. For LAN tests:
+    Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private
+  No FYP inbound rule yet for 8000/8002. When Z/dashboard must connect
+  from another machine:
+    New-NetFirewallRule -DisplayName "FYP Edge Y 8000 8002" -Direction Inbound `
+      -Protocol TCP -LocalPort 8000,8002 -Action Allow -Profile Any
+  Tailscale adapter is Up; check Get-NetConnectionProfile for its category.
+
+[2026-11-03 12:29 +09:00 | from Y]
+  X: port 8001 is reachable from Y. When using Tailscale, confirm 8001 is
+     allowed on X's Tailscale adapter.
+
+====================================================================
+7. PENDING ACTIONS (IN ORDER)
+====================================================================
+[2026-11-03 12:38 +09:00 | from Y]
+  [ ] Put X on the same tailnet; make x-home resolve from Y.
+  [ ] Test-NetConnection x-home -Port 8001 -> True.
+  [ ] .\run_y.cmd x-home -> "connected to X".
+  [ ] Upgrade Y to Python 3.13.9 + pinned requirements; selftest hash = X.
+  [ ] Set Y profiles to Private; add 8000/8002 inbound rule.
+  [ ] Set up Z later:
+        winget install --id Python.Python.3.13 --version 3.13.9 --exact
+        py -3.13 -m venv venv
+        .\venv\Scripts\Activate.ps1
+        python -m pip install pygame==2.6.1 websockets==15.0.1
+        .\run_z.cmd <Y-tailnet-name-or-IP>
+      Z needs no images, no Pillow, no inbound firewall rule.
+  [ ] Re-run latency test: slider >80 ms -> EDGE Y; <50 ms for 3 s -> CLOUD X.
+
+====================================================================
+8. COMMANDS
+====================================================================
+[2026-11-03 12:38 +09:00 | from Y]
+  LAN:        Test-NetConnection 192.168.0.181 -Port 8001
+              .\run_x.cmd
+              .\run_y.cmd 192.168.0.181
+  Tailscale:  & "C:\Program Files\Tailscale\tailscale.exe" status
+              & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+              & "C:\Program Files\Tailscale\tailscale.exe" ping x-home
+  Dashboard:  dashboard.html?ip=127.0.0.1        (Y local)
+              dashboard.html?ip=192.168.0.17       (LAN)
+              dashboard.html?ip=y-lab              (tailnet)
+  Logs:       log_y.csv columns: unix_time, mode, rtt_ms, injected_delay_ms,
+              e2e_ms_from_Z, rtt_zy_ms_from_Z, x_link
+              x_link=1 -> Y->X link up; x_link=0 -> Y in fallback.
+
+END OF SYNC
+
