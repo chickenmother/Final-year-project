@@ -30,14 +30,27 @@ PING_INTERVAL = float(os.environ.get("FYP_PING_INTERVAL", "15"))
 PING_TIMEOUT = float(os.environ.get("FYP_PING_TIMEOUT", "15"))
 RECONNECT_S = 2.0       # wait before dialling X / Y again
 
+def _pair(name, default):
+    w, h = os.environ.get(name, default).lower().split("x")
+    return int(w), int(h)
+
+
 TICK_RATE = 60          # game ticks per second (each tick = 4 original 240 FPS frames)
-X_STREAM_EVERY = 1      # X sends a frame every tick -> 60 fps
-Y_STREAM_EVERY = 2      # Y sends a frame every 2nd tick -> 30 fps
+X_STREAM_EVERY = int(os.environ.get("FYP_X_STREAM_EVERY", "1"))   # 1 -> 60 fps
+Y_STREAM_EVERY = int(os.environ.get("FYP_Y_STREAM_EVERY", "2"))   # 2 -> 30 fps
 
-WIN_W, WIN_H = 960, 540             # window on Z
-X_SIZE, X_QUALITY = (960, 540), 80  # cloud X: high quality
-Y_SIZE, Y_QUALITY = (480, 270), 40  # edge Y: low quality (weaker node)
+WIN_W, WIN_H = _pair("FYP_WIN_SIZE", "960x540")        # window on Z
+X_SIZE = _pair("FYP_X_SIZE", "960x540")                # cloud X capture size
+Y_SIZE = _pair("FYP_Y_SIZE", "480x270")                # edge Y capture size
+X_QUALITY = int(os.environ.get("FYP_X_QUALITY", "80"))
+Y_QUALITY = int(os.environ.get("FYP_Y_QUALITY", "40"))
 
-HIGH_MS, LOW_MS = 80, 50   # RTT(X<->Y) thresholds: > HIGH -> use Y, < LOW -> back to X
-BAD_COUNT = 3              # consecutive bad pings (0.2 s apart) before switching to Y
-RECOVER_S = 3.0            # RTT must stay < LOW_MS this long before switching back to X
+# RTT(X<->Y) thresholds: > HIGH_MS -> use Y, < LOW_MS -> back to X.
+# On a WAN calibrate these around the measured baseline: HIGH ~= p50 + 35, LOW ~= p50 + 15.
+HIGH_MS = float(os.environ.get("FYP_HIGH_MS", "80"))
+LOW_MS = float(os.environ.get("FYP_LOW_MS", "50"))
+BAD_COUNT = int(os.environ.get("FYP_BAD_COUNT", "3"))         # bad pings before switching to Y
+RECOVER_S = float(os.environ.get("FYP_RECOVER_S", "3.0"))     # time below LOW_MS to go back to X
+
+# Z measures the Z<->Y hop by sending {"pts": <clock>} every N input messages; Y echoes it.
+Z_PING_EVERY = int(os.environ.get("FYP_Z_PING_EVERY", "6"))

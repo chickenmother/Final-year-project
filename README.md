@@ -39,7 +39,7 @@ Input travels **up** the chain (Z → Y → X) and video travels **down** (X →
 1. **Input up** — every tick, Z sends JSON `{"keys": "...", "n": <seq>, "e2e": <ms>}` to Y.
 2. **Sequencing** — Y advances its own copy of the game, then forwards `{"t":"in","tick":<n>,"keys":"...","seq":<n>}` to X. X only steps when `tick == game.tick + 1`; a larger jump triggers `need_snap` and a full state resync.
 3. **Frames down** — a frame is `1 byte source ('X' or 'Y') + struct.pack("!II", tick, seq) + JPEG bytes`. X and Y use the same layout, so Z needs no knowledge of which tier rendered it.
-4. **Telemetry** — Y pings X and pushes dashboard state every 0.2 s; Z reports its latest end-to-end latency in the next input message.
+4. **Telemetry** — Y pings X and pushes dashboard state every 0.2 s. Z measures the **Z↔Y** hop itself: every 6th input (`FYP_Z_PING_EVERY`) carries `{"pts": <clock>}`, Y echoes the timestamp, and Z reports both its end-to-end latency and the measured `rzy` in the next input so the dashboard can show both legs separately.
 
 ### Middle Y — decision proxy + local fallback
 
@@ -224,7 +224,8 @@ reproduces the original one-host setup.
 ## What the Dashboard Shows
 
 - **Active node** — `CLOUD X` (green) or `EDGE Y` (orange), updated every 0.2 s.
-- **RTT X↔Y** — the smoothed round-trip time Y measures with its ping/pong loop.
+- **RTT X↔Y** — the smoothed round-trip time Y measures with its ping/pong loop (the cloud leg).
+- **RTT Z↔Y** — measured by End Z and reported back to Y (the last-mile leg); useful when Z is on a different network from Y.
 - **X lag** — how many ticks ahead Y's local simulation is compared with the newest frame received from X.
 - **input→display (Z)** — end-to-end latency reported by End Z: how long it took between sending an input and displaying a frame produced from it.
 - **Cloud X link** — `up`/`DOWN`, whether Middle Y currently holds a WebSocket to X.
@@ -298,6 +299,7 @@ All three logs are written to the **current working directory** (run from the re
 | `rtt_ms` | smoothed Y↔X RTT in milliseconds |
 | `injected_delay_ms` | RTT currently injected by the dashboard slider |
 | `e2e_ms_from_Z` | last end-to-end input→display latency reported by Z |
+| `rtt_zy_ms_from_Z` | Z↔Y round-trip time measured by End Z and reported back to Y |
 | `x_link` | `1` while the WebSocket to Cloud X is up, `0` while it is down |
 
 `log_z.csv` — written by End Z for every displayed frame that can be matched to an input:
@@ -308,6 +310,7 @@ All three logs are written to the **current working directory** (run from the re
 | `source` | tier that produced the frame (`X` or `Y`) |
 | `tick` | game tick carried in the frame header |
 | `e2e_ms` | input→display latency in milliseconds |
+| `rtt_zy_ms` | current Z↔Y round-trip time measured by the probe loop |
 
 Y flushes its file on every sample; Z flushes every 30 frames.
 
@@ -329,20 +332,90 @@ All tunables live in `common/config.py`:
 | `PING_INTERVAL`, `PING_TIMEOUT` | `FYP_PING_INTERVAL`, `FYP_PING_TIMEOUT` | `15`, `15` | WebSocket keepalive, in seconds |
 | `RECONNECT_S` | — | `2.0` | wait before re-dialling a lost peer |
 | `TICK_RATE` | — | `60` | simulation ticks per second (each tick = 4 original 240 fps frames) |
-| `X_STREAM_EVERY` | — | `1` | X renders every tick → 60 fps |
-| `Y_STREAM_EVERY` | — | `2` | Y renders every 2nd tick → 30 fps |
-| `WIN_W`, `WIN_H` | — | `960`, `540` | window size on Z |
-| `X_SIZE`, `X_QUALITY` | — | `(960, 540)`, `80` | Cloud X capture size and JPEG quality |
-| `Y_SIZE`, `Y_QUALITY` | — | `(480, 270)`, `40` | Edge Y capture size and JPEG quality |
-| `HIGH_MS` | — | `80` | RTT above which a sample counts as "bad" (X → Y) |
-| `LOW_MS` | — | `50` | RTT below which recovery can begin (Y → X) |
-| `BAD_COUNT` | — | `3` | consecutive bad samples before switching to Y |
-| `RECOVER_S` | — | `3.0` | seconds below `LOW_MS` before switching back to X |
+| `X_STREAM_EVERY` | `FYP_X_STREAM_EVERY` | `1` | X renders every Nth tick (2 → 30 fps, halves the bitrate) |
+| `Y_STREAM_EVERY` | `FYP_Y_STREAM_EVERY` | `2` | Y renders every Nth tick |
+| `WIN_W`, `WIN_H` | `FYP_WIN_SIZE` (`960x540`) | `960`, `540` | window size on Z |
+| `X_SIZE` | `FYP_X_SIZE` (`960x540`) | `(960, 540)` | Cloud X capture size |
+| `X_QUALITY` | `FYP_X_QUALITY` | `80` | Cloud X JPEG quality |
+| `Y_SIZE` | `FYP_Y_SIZE` (`480x270`) | `(480, 270)` | Edge Y capture size |
+| `Y_QUALITY` | `FYP_Y_QUALITY` | `40` | Edge Y JPEG quality |
+| `HIGH_MS` | `FYP_HIGH_MS` | `80` | RTT above which a sample counts as "bad" (X → Y) |
+| `LOW_MS` | `FYP_LOW_MS` | `50` | RTT below which recovery can begin (Y → X) |
+| `BAD_COUNT` | `FYP_BAD_COUNT` | `3` | consecutive bad samples before switching to Y |
+| `RECOVER_S` | `FYP_RECOVER_S` | `3.0` | seconds below `LOW_MS` before switching back to X |
+| `Z_PING_EVERY` | `FYP_Z_PING_EVERY` | `6` | Z sends a Z↔Y latency probe every Nth input |
 
 `HIGH_MS`/`LOW_MS` are calibrated for a healthy LAN (sub-millisecond RTT), where the mode only
-changes when the dashboard slider injects delay. If you later host X on a real WAN link, measure
-the baseline RTT first and set `HIGH_MS = baseline + 30`, `LOW_MS = baseline + 10`; otherwise Y
-may sit in fallback permanently or flap.
+changes when the dashboard slider injects delay. On a WAN, measure the baseline first and set
+`FYP_HIGH_MS ≈ baseline + 35`, `FYP_LOW_MS ≈ baseline + 15`; otherwise Y may sit in fallback
+permanently or flap. All stream-quality knobs (`FYP_X_STREAM_EVERY`, `FYP_X_QUALITY`,
+`FYP_X_SIZE`, …) are environment variables too, so a remote deployment can be tuned without
+editing the tracked file.
+
+---
+
+## Deploying across different networks (WAN)
+
+Putting X, Y and Z on three different networks (home broadband, a lab LAN, a phone hotspot)
+rules out port forwarding: the hotspot is behind carrier-grade NAT and campus networks rarely
+accept inbound connections. Use a **mesh overlay VPN** instead. It traverses NAT automatically,
+encrypts the traffic, and gives each machine a stable address and name — so `common/config.py`
+does not change when an ISP hands out a new IP.
+
+Tailscale is the least-effort option (ZeroTier or NetBird work the same way):
+
+1. Install it on X, Y and Z, sign all three into the same account, then on each machine:
+   ```powershell
+   tailscale up
+   tailscale ip -4            # this machine's 100.x address
+   tailscale status           # peers and whether each path is direct
+   tailscale ping y-lab       # "direct" or "via DERP"
+   ```
+   Name the devices in the admin console (e.g. `x-home`, `y-lab`, `z-mobile`), enable MagicDNS,
+   and disable key expiry for the demo devices. The startup banner prints the **physical** LAN
+   address, not the tailnet address — use `tailscale ip -4` (or the MagicDNS name) when
+   configuring the peers.
+2. Firewall: allow inbound TCP `8001` on X and `8000`/`8002` on Y for the **Private** profile.
+   The Tailscale adapter is normally Private; confirm with `Get-NetConnectionProfile`, and set
+   it to Private if it is reported as Public. Z needs no inbound rule.
+3. Start the tiers using the overlay names:
+   ```powershell
+   .\run_x.cmd
+   .\run_y.cmd x-home
+   .\run_z.cmd y-lab
+   ```
+   Dashboard: `dashboard.html?ip=y-lab`.
+4. If a laptop roams between networks, shorten dead-link detection with
+   `$env:FYP_PING_INTERVAL="5"; $env:FYP_PING_TIMEOUT="5"` on that machine. Y re-dials X every
+   2 s and Z re-dials Y every ~1 s, so the session recovers on its own after a network change.
+
+`tailscale ping` shows whether a hop is direct or relayed through DERP; a relayed path adds tens
+of milliseconds and is worth reporting. `tailscale netcheck` explains why a direct path was not
+established. If the overlay cannot be installed on a managed machine, expose Y with a reverse
+tunnel (e.g. Cloudflare Tunnel) and run Z through the same client — it works, but adds latency.
+
+### Bandwidth and data cost
+
+| Mode | Frame | Rate | Downstream to Z | Mobile data |
+|------|-------|------|-----------------|-------------|
+| `CLOUD X` | ~42 KB (960×540 q80) | 60 fps | ~20 Mbps | ~150 MB/min |
+| `EDGE Y` | ~8 KB (480×270 q40) | 30 fps | ~2 Mbps | ~15 MB/min |
+
+X also needs roughly 20 Mbps **upstream** in `CLOUD X` mode. If any link cannot sustain that,
+lower `FYP_X_STREAM_EVERY` (2 → ~10 Mbps) and/or `FYP_X_QUALITY`/`FYP_X_SIZE` on X — the
+environment variables can be set per deployment. On a mobile hotspot, prefer short runs: the
+edge tier is both faster and about ten times cheaper in data, which is a useful result in itself.
+
+### Experiment design for a WAN
+
+- Measure the X↔Y baseline at slider 0 (`rtt_ms`), then fix `FYP_HIGH_MS`/`FYP_LOW_MS` for all runs.
+- Run 60 s in `CLOUD X`, sweep the slider 0 → 400 → 0 ms, then 60 s again.
+- Record `log_x.csv` (X), `log_y.csv` (Y) and `log_z.csv` (Z); report p50/p95 `e2e_ms` per mode, the
+  switch/recovery times, both RTTs (`rtt_ms`, `rtt_zy_ms`) and the bitrate from `log_x.csv`.
+- Keep **Y near Z** for the strongest result (same lab Wi-Fi) and put X far away (cloud VM in
+  another region). The fully distributed setup — X at home, Y in the lab, Z on a hotspot — is a
+  good secondary run, but there the last hop is itself a mobile WAN link, so part of the edge
+  benefit is consumed by it.
 
 ---
 

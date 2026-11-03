@@ -12,7 +12,8 @@ from common.game import Game
 
 TICK = 1 / C.TICK_RATE
 game = Game()
-state = {"mode": "X", "rtt": 0.0, "lag": 0, "delay_ms": 0, "e2e": 0.0, "tick": 0, "linked": False}
+state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
+         "e2e": 0.0, "tick": 0, "linked": False}
 inp = {"keys": "", "seq": 0, "latch": False}
 zs = {}                # Z connection -> its "latest frame" slot
 last_fwd, bad, good_since = 0, 0, None
@@ -54,14 +55,15 @@ def broadcast(data):
         slot["ev"].set()
 
 
-async def z_sender(ws, slot):
+async def z_sender(ws, slot, lock):
     try:
         while True:
             await slot["ev"].wait()
             slot["ev"].clear()
             data, slot["data"] = slot["data"], None
             if data is not None:
-                await ws.send(data)
+                async with lock:           # frames and pong replies share the socket
+                    await ws.send(data)
     except (ConnectionClosed, OSError):
         pass
 
@@ -127,21 +129,27 @@ async def ping_loop():
         if up is not None and up.fn is not None:
             up.put(json.dumps({"t": "ping", "ts": time.monotonic()}))
         log_w.writerow([round(time.time(), 3), state["mode"], round(state["rtt"], 1),
-                        state["delay_ms"], round(state["e2e"], 1), int(state["linked"])])
+                        state["delay_ms"], round(state["e2e"], 1),
+                        round(state["rtt_zy"], 1), int(state["linked"])])
         log_f.flush()
         await asyncio.sleep(0.2)
 
 
 async def z_handler(ws):
     slot = {"data": None, "ev": asyncio.Event()}
+    lock = asyncio.Lock()
     zs[ws] = slot
-    sender = asyncio.create_task(z_sender(ws, slot))
+    sender = asyncio.create_task(z_sender(ws, slot, lock))
     print("Z connected")
     try:
         async for msg in ws:
             m = json.loads(msg)
             inp["keys"], inp["seq"] = m["keys"], m["n"]
             state["e2e"] = m.get("e2e", 0.0)
+            state["rtt_zy"] = m.get("rzy", state["rtt_zy"])
+            if "pts" in m:                      # Z's Z<->Y latency probe: echo it back
+                async with lock:
+                    await ws.send(json.dumps({"t": "pong", "ts": m["pts"]}))
             if " " in m["keys"]:
                 inp["latch"] = True
     finally:
@@ -198,7 +206,8 @@ async def main():
     global up, down, log_f, log_w
     log_f = open("log_y.csv", "w", newline="")
     log_w = csv.writer(log_f)
-    log_w.writerow(["unix_time", "mode", "rtt_ms", "injected_delay_ms", "e2e_ms_from_Z", "x_link"])
+    log_w.writerow(["unix_time", "mode", "rtt_ms", "injected_delay_ms",
+                    "e2e_ms_from_Z", "rtt_zy_ms_from_Z", "x_link"])
 
     up, down = DelayLine(), DelayLine()     # live for the whole process, attached per session
     loops = [asyncio.create_task(c) for c in (up.run(), down.run(), tick_loop(), ping_loop())]

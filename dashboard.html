@@ -4,16 +4,16 @@
 <body style="font-family:Consolas,monospace;font-size:18px;padding:20px">
 <h2>Active node: <span id="mode" style="padding:2px 12px;border-radius:6px">?</span></h2>
 <div>RTT X&harr;Y: <b id="rtt">-</b> ms &nbsp;|&nbsp; X lag: <b id="lag">-</b> ticks &nbsp;|&nbsp; input&rarr;display (Z): <b id="e2e">-</b> ms</div>
-<div>Cloud X link: <b id="link">-</b> &nbsp;|&nbsp; dashboard: <b id="dash">connecting</b></div>
+<div>RTT Z&harr;Y: <b id="rzy">-</b> ms &nbsp;|&nbsp; Cloud X link: <b id="link">-</b> &nbsp;|&nbsp; dashboard: <b id="dash">connecting</b></div>
 <br>
 <div>Injected X&harr;Y latency (RTT):
   <input type="range" min="0" max="400" value="0" id="slider" style="width:360px">
   <b id="d">0</b> ms</div>
 <script>
-// Open dashboard.html?ip=192.168.0.181  (Middle Y's LAN address)
+// Preferred: dashboard.html?ip=<Y address>   e.g. ?ip=192.168.0.17 or ?ip=y-lab
 (() => {
   const qs = new URLSearchParams(location.search);
-  const ip = qs.get("ip") || prompt("IP address of Y (edge gateway):", "192.168.0.181");
+  const ip = qs.get("ip") || prompt("IP address of Y (edge gateway):", "127.0.0.1");
   const $ = id => document.getElementById(id);
   if (!ip) {
     document.body.innerHTML = "<h2>No Y address given. Open dashboard.html?ip=&lt;Y_IP&gt;</h2>";
@@ -32,6 +32,7 @@
       $("rtt").textContent = s.rtt.toFixed(0);
       $("lag").textContent = s.lag;
       $("e2e").textContent = s.e2e.toFixed(0);
+      $("rzy").textContent = (s.rtt_zy || 0).toFixed(0);
       $("link").textContent = s.linked ? "up" : "DOWN";
       $("link").style.color = s.linked ? "#2e7d32" : "#c62828";
     };
@@ -39,6 +40,7 @@
       $("dash").textContent = "disconnected - retrying";
       $("dash").style.color = "#c62828";
       $("link").textContent = "-";
+      $("rzy").textContent = "-";
       setTimeout(connect, 1000);
     };
     ws.onerror = () => ws.close();

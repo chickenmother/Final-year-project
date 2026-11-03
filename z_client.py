@@ -18,9 +18,9 @@ async def main():
     font = pygame.font.SysFont("consolas", 20)
     log_f = open("log_z.csv", "w", newline="")
     log = csv.writer(log_f)
-    log.writerow(["unix_time", "source", "tick", "e2e_ms"])
+    log.writerow(["unix_time", "source", "tick", "e2e_ms", "rtt_zy_ms"])
 
-    sent, st = {}, {"e2e": 0.0}
+    sent, st = {}, {"e2e": 0.0, "rzy": 0.0}
     seq, nframes, running = 0, 0, True
     pending_space, last_frame = False, None
 
@@ -46,7 +46,10 @@ async def main():
             seq += 1
             sent[seq] = time.monotonic()
             sent.pop(seq - 600, None)
-            await ws.send(json.dumps({"keys": keys, "n": seq, "e2e": st["e2e"]}))
+            msg = {"keys": keys, "n": seq, "e2e": st["e2e"], "rzy": round(st["rzy"], 1)}
+            if seq % C.Z_PING_EVERY == 0:        # probe the Z<->Y hop a few times per second
+                msg["pts"] = time.monotonic()
+            await ws.send(json.dumps(msg))
             nxt += 1 / C.TICK_RATE
             await asyncio.sleep(max(0, nxt - time.monotonic()))
 
@@ -55,6 +58,12 @@ async def main():
         overlay = shadow = None
         last_src = None
         async for msg in ws:
+            if isinstance(msg, str):             # pong for our Z<->Y latency probe
+                m = json.loads(msg)
+                if m.get("t") == "pong":
+                    ms = (time.monotonic() - m["ts"]) * 1000
+                    st["rzy"] = ms if not st["rzy"] else 0.8 * st["rzy"] + 0.2 * ms
+                continue
             src = chr(msg[0])
             tick, s = struct.unpack("!II", msg[1:9])
             img = pygame.image.load(io.BytesIO(msg[9:]), "f.jpg")
@@ -66,7 +75,8 @@ async def main():
             if t0:
                 ms = (time.monotonic() - t0) * 1000
                 st["e2e"] = ms if not st["e2e"] else 0.9 * st["e2e"] + 0.1 * ms
-                log.writerow([round(time.time(), 3), src, tick, round(ms, 1)])
+                log.writerow([round(time.time(), 3), src, tick, round(ms, 1),
+                              round(st["rzy"], 1)])
             nframes += 1
             if nframes % 30 == 0:
                 log_f.flush()
@@ -74,7 +84,7 @@ async def main():
             if overlay is None or src != last_src or nframes % 12 == 0:
                 col = (80, 255, 120) if src == "X" else (255, 170, 50)
                 txt = (f"{'CLOUD X (high quality)' if src == 'X' else 'EDGE Y (fallback)'}"
-                       f"   input->display {st['e2e']:.0f} ms")
+                       f"   input->display {st['e2e']:.0f} ms   Y link {st['rzy']:.0f} ms")
                 shadow = font.render(txt, True, (0, 0, 0))
                 overlay = font.render(txt, True, col)
                 last_src = src
@@ -110,6 +120,7 @@ async def main():
                                    ping_interval=C.PING_INTERVAL, ping_timeout=C.PING_TIMEOUT) as ws:
                     print(f"connected to Y at {C.Y_URI}")
                     sent.clear()
+                    st["rzy"] = 0.0          # do not show the previous link's RTT
                     await session(ws)
             except (OSError, ConnectionClosed) as e:
                 print(f"Y link down ({e!r})")
