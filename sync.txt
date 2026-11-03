@@ -1,6 +1,6 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-03 13:03 +09:00   (from X)
+Last updated : 2026-11-03 13:20 +09:00   (from Y)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
@@ -287,6 +287,39 @@ HEAD   : 1cc8c98  "Add sync log ..."   (code; this update is the next commit)
     `tailscale netcheck` explains why no direct path exists from Y.
   - Cleanup on Y from earlier tests: y_test.out/err, ts_up.out/err (ts_up.err
     holds an expired auth link).
+
+[2026-11-03 13:20 +09:00 | from Y — required changes executed]
+  - Python 3.13.9 installed via winget (Python.Python.3.13, version 3.13.9).
+  - venv recreated with py -3.13; pinned requirements installed:
+      python 3.13.9 | pygame 2.6.1 | pillow 11.3.0 | websockets 15.0.1
+  - selftest.py result:
+      ticks 3000 score 46 deaths 42
+      hash 30f043222e75fabf0ec80d2cd7edf6df
+      resync OK
+      render bytes: 43002 (X) 8027 (Y)
+    -> matches X exactly.
+  - Firewall: rule "FYP Edge Y 8000 8002" already exists, Enabled, Inbound,
+    Allow, Profile = Private. Changing it to -Profile Any needs Administrator:
+    New-NetFirewallRule returned "Access is denied". Wi-Fi
+    ("chicken_mother's wifi") and the Tailscale adapter are both Private,
+    so LAN/Tailscale Z should be covered. Re-check if Z uses a Public adapter.
+  - Y starts and listens on 0.0.0.0:8000 (Z) and 0.0.0.0:8002 (dashboard).
+  - X link still DOWN: PermissionError(13, 'Access is denied') to both
+    192.168.0.181:8001 and 100.90.88.64:8001.
+    `tailscale ping chicken-mother` -> pong via DERP(tok), 54-77 ms.
+    Local diagnosis: a WireGuard tunnel adapter "gn402096-165_v4"
+    (10.200.200.165, default route metric 0) is active and blocks LAN /
+    non-tunnel TCP; 1.1.1.1:443 succeeded while 192.168.0.1:80 and
+    8.8.8.8:53 returned the same WinError 10013. Suspect VPN kill switch.
+  - Next action: disconnect the WireGuard VPN (or allow LAN traffic on it),
+    then from Y:
+      Test-NetConnection chicken-mother -Port 8001
+      $env:FYP_HIGH_MS = "100"; $env:FYP_LOW_MS = "75"
+      .\run_y.cmd chicken-mother
+    Expected: "connected to X at ws://chicken-mother:8001",
+              log_y x_link=1, mode=X, rtt_ms ~57-65.
+  - Cleanup: y_run.out/err removed; y_test.out/err and ts_up.out/err are
+    not present.
 
 END OF SYNC
 
