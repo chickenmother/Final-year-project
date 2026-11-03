@@ -1,10 +1,10 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-03 12:38 +09:00   (from Y)
+Last updated : 2026-11-03 13:03 +09:00   (from X)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
-HEAD   : 73afaa6  "Enhance latency monitoring and configuration..."
+HEAD   : 1cc8c98  "Add sync log ..."   (code; this update is the next commit)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
@@ -24,6 +24,15 @@ HEAD   : 73afaa6  "Enhance latency monitoring and configuration..."
   End Z: weaker laptop, not set up yet.
   Z needs only pygame + websockets (no Pillow, no images).
   Ports: X 8001 (Y->X) | Y 8000 (Z->Y) | Y 8002 (dashboard)
+
+[2026-11-03 13:03 +09:00 | from X]
+  Tailnet is up; all three devices in the same account (as04117sky@):
+    X  chicken-mother  100.90.88.64    home LAN 192.168.0.181
+    Y  andoryuuuspc    100.78.193.29   remote (lab / other network)
+    Z  pc23-148d       100.88.203.76   currently on the home LAN 192.168.0.106
+  MagicDNS resolves the short names on X (Resolve-DnsName -> CNAME -> A) and
+  Python's socket.getaddrinfo returns the 100.x address, so ws://<name>:port
+  works unchanged. No code change is needed for hostname-based URIs.
 
 ====================================================================
 2. VERIFIED WORKING
@@ -75,6 +84,16 @@ HEAD   : 73afaa6  "Enhance latency monitoring and configuration..."
   5) Allow inbound TCP 8001 on X's Tailscale adapter (Private / Any).
   6) .\run_y.cmd x-home
   Until then use the LAN address: .\run_y.cmd 192.168.0.181
+
+[2026-11-03 13:03 +09:00 | from X — RESOLVED]
+  X is now on the tailnet. Blocking cause was simply that X's Tailscale was
+  logged out (state NeedsLogin); it is now signed in as chicken-mother.
+  NOTE: the device is NOT named "x-home". Use the real names:
+    X = chicken-mother     Y = andoryuuuspc     Z = pc23-148d
+  (x-home / y-lab in README and earlier notes are illustrative only.)
+  tailscale ping from X:
+    X <-> Y : via DERP(tok) 63 / 57 / 57 ms   (direct connection not established)
+    X <-> Z : direct 192.168.0.106:41641     4 ms
 
 ====================================================================
 4. CHANGES MADE IN THIS SESSION
@@ -157,6 +176,13 @@ HEAD   : 73afaa6  "Enhance latency monitoring and configuration..."
       Z needs no images, no Pillow, no inbound firewall rule.
   [ ] Re-run latency test: slider >80 ms -> EDGE Y; <50 ms for 3 s -> CLOUD X.
 
+[2026-11-03 13:03 +09:00 | from X — status update]
+  [x] Put X on the same tailnet                     -> chicken-mother 100.90.88.64
+  [x] x-home resolves                              -> rename needed? NO: use chicken-mother
+  [ ] Y firewall 8000/8002 inbound                 -> still missing (blocks Z)
+  [ ] Y Python 3.13.9 + pinned requirements        -> Y still on 3.10.5
+  [ ] Y run_y with chicken-mother + calibrated thresholds -> see section 9
+
 ====================================================================
 8. COMMANDS
 ====================================================================
@@ -164,15 +190,103 @@ HEAD   : 73afaa6  "Enhance latency monitoring and configuration..."
   LAN:        Test-NetConnection 192.168.0.181 -Port 8001
               .\run_x.cmd
               .\run_y.cmd 192.168.0.181
+[2026-11-03 13:03 +09:00 | from X — tailnet commands]
+  Run:        .\run_x.cmd
+              .\run_y.cmd chicken-mother
+              .\run_z.cmd andoryuuuspc
   Tailscale:  & "C:\Program Files\Tailscale\tailscale.exe" status
               & "C:\Program Files\Tailscale\tailscale.exe" ip -4
-              & "C:\Program Files\Tailscale\tailscale.exe" ping x-home
+              & "C:\Program Files\Tailscale\tailscale.exe" ping andoryuuuspc
+              & "C:\Program Files\Tailscale\tailscale.exe" ping pc23-148d
   Dashboard:  dashboard.html?ip=127.0.0.1        (Y local)
-              dashboard.html?ip=192.168.0.17       (LAN)
-              dashboard.html?ip=y-lab              (tailnet)
+              dashboard.html?ip=192.168.0.17       (Y LAN)
+              dashboard.html?ip=andoryuuuspc       (tailnet name)
+              dashboard.html?ip=100.78.193.29      (tailnet IP)
   Logs:       log_y.csv columns: unix_time, mode, rtt_ms, injected_delay_ms,
               e2e_ms_from_Z, rtt_zy_ms_from_Z, x_link
               x_link=1 -> Y->X link up; x_link=0 -> Y in fallback.
+
+====================================================================
+9. REQUIRED CHANGES ON Y  (from X, 2026-11-03 13:03 +09:00)
+====================================================================
+[2026-11-03 13:03 +09:00 | from X — why a change is needed]
+  The X<->Y baseline is ~60 ms because Tailscale relays through DERP(tok);
+  no direct path is available from Y's network. The default LOW_MS = 50 is
+  therefore BELOW the baseline, so once Y switches to EDGE Y it can never
+  return to CLOUD X ("stuck in fallback"). No code change is required:
+  HIGH_MS / LOW_MS / RECOVER_S are environment variables (commit 73afaa6).
+
+  Calibrate on Y (baseline 60 -> HIGH 100, LOW 75):
+    $env:FYP_HIGH_MS = "100"      # baseline + ~40
+    $env:FYP_LOW_MS  = "75"       # baseline + ~15
+    $env:FYP_RECOVER_S = "3.0"    # default, keep
+
+[2026-11-03 13:03 +09:00 | from X — steps for Y, in order]
+  1) git pull                     (fetch this file; code HEAD >= 1cc8c98)
+  2) Firewall (admin PowerShell, once) — Z connects TO Y:
+       New-NetFirewallRule -DisplayName "FYP Edge Y 8000 8002" `
+         -Direction Inbound -Protocol TCP -LocalPort 8000,8002 `
+         -Action Allow -Profile Any
+     (-Profile Any because Y's Wi-Fi is Public and the Tailscale adapter
+      category may differ; a Private-only rule will silently block Z.)
+  3) Match X's environment exactly:
+       winget install --id Python.Python.3.13 --version 3.13.9 --exact
+       Remove-Item -Recurse -Force venv
+       py -3.13 -m venv venv
+       .\venv\Scripts\python.exe -m pip install -r requirements.txt
+       .\venv\Scripts\python.exe selftest.py
+     Expected:
+       python 3.13.9 | pygame 2.6.1 | pillow 11.3.0 | websockets 15.0.1
+       ticks 3000 score 46 deaths 42 hash 30f043222e75fabf0ec80d2cd7edf6df
+       resync OK
+       render bytes: 43002 (X) 8027 (Y)
+     (Y's 3.10.5 run already matched the hash, but match 3.13.9 anyway.)
+  4) Optional, bind Y to the tunnel only instead of 0.0.0.0:
+       $env:FYP_Y_HOST = "100.78.193.29"
+  5) Start Y with the calibrated thresholds and X's real name:
+       $env:FYP_HIGH_MS = "100"
+       $env:FYP_LOW_MS  = "75"
+       .\run_y.cmd chicken-mother
+     Expected stdout:
+       "connected to X at ws://chicken-mother:8001"
+       "Y ready: Z -> ws://100.78.193.29:8000   dashboard -> ws://100.78.193.29:8002"
+     log_y.csv: x_link=1, mode=X, rtt_ms ~57-65 (slider at 0)
+  6) If MagicDNS fails on Y (Resolve-DnsName chicken-mother -> nothing):
+       .\run_y.cmd 100.90.88.64
+     The tunnel works without DNS; only the name is cosmetic.
+
+[2026-11-03 13:03 +09:00 | from X — for Z (pc23-148d), when ready]
+  Z needs only pygame + websockets; no images, no Pillow, no inbound rule:
+    winget install --id Python.Python.3.13 --version 3.13.9 --exact
+    git pull
+    py -3.13 -m venv venv
+    .\venv\Scripts\python.exe -m pip install pygame==2.6.1 websockets==15.0.1
+    .\run_z.cmd andoryuuuspc        (or 100.78.193.29)
+  Z currently sits on the home LAN (direct 4 ms to X); when it moves to the
+  mobile hotspot, expect Z<->Y to become DERP-relayed as well.
+
+[2026-11-03 13:03 +09:00 | from X — verification checklist]
+  [ ] Test-NetConnection chicken-mother -Port 8001        -> True
+  [ ] .\run_y.cmd chicken-mother -> "connected to X"; log_y x_link=1
+  [ ] selftest hash == 30f043222e75fabf0ec80d2cd7edf6df
+  [ ] Z: "connected to Y"; overlay shows CLOUD X and input->display
+  [ ] dashboard shows BOTH legs: rtt(X<->Y) ~60 and rtt_zy(Z<->Y)
+  [ ] slider 120 -> EDGE Y within ~2 s; slider 0 -> CLOUD X in ~3-5 s
+      (only with FYP_HIGH_MS=100 / FYP_LOW_MS=75; defaults never recover)
+  [ ] record `tailscale ping` (direct vs DERP) for each leg per run
+
+[2026-11-03 13:03 +09:00 | from X — notes]
+  - No application code changes are required for the tailnet. common/config.py
+    already builds ws://<host>:<port>; dashboard.html already accepts ?ip=<name>.
+  - Commit 73afaa6 already contains: FYP_* tuning variables, Z<->Y RTT probe
+    (rtt_zy in state/dashboard), log_y column rtt_zy_ms_from_Z, log_z column
+    rtt_zy_ms, WAN docs.
+  - DERP throughput: if the ~20 Mbps CLOUD X stream stutters over the relay,
+    set on X:  $env:FYP_X_STREAM_EVERY = "2"   (~10 Mbps, 30 fps) and note it.
+  - Report both paths: X<->Y is relayed (DERP tok), X<->Z is direct today.
+    `tailscale netcheck` explains why no direct path exists from Y.
+  - Cleanup on Y from earlier tests: y_test.out/err, ts_up.out/err (ts_up.err
+    holds an expired auth link).
 
 END OF SYNC
 
