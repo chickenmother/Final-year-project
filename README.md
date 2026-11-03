@@ -99,15 +99,31 @@ FYP/
 
 ## Prerequisites
 
-- **Python 3.13.9 on all three machines.** X and Y run the same deterministic game, so the
-  interpreter version must match (Python only guarantees `random.random()` — not `randrange` —
-  across versions). Mixing 3.10 and 3.13 can make the `selftest.py` hashes differ.
+### Required on all three machines
+
+- **Python 3.13.9.** X and Y run the same deterministic game, so the interpreter version must
+  match (Python only guarantees `random.random()` — not `randrange` — across versions). Mixing
+  3.10 and 3.13 can make the `selftest.py` hashes differ.
 - **Python packages**, pinned in `requirements.txt` and installed on every machine:
   - `pygame==2.6.1` — display, input, surface scaling and JPEG decoding on Z
   - `Pillow==11.3.0` — JPEG encoding on X and Y
   - `websockets==15.0.1` — the async client/server transport used by all three tiers
 - **The four image assets** in `images/` — `background.png`, `bullet.png`, `player.jpg`, `rock.png`. Required on **X and Y**; Z does not load them.
-- **Three machines on the same LAN, wired where possible**, with these ports free:
+- **Windows is recommended but not required.** `common/win.py` calls `timeBeginPeriod(1)` so 60 Hz ticks are not quantised to the default 15.6 ms timer; on other platforms the call is swallowed and the OS timer is used as-is.
+- **A browser** on any machine for `dashboard.html`.
+
+### Network options
+
+| Mode | When to use | Extra software |
+|------|-------------|----------------|
+| **Single LAN** | X, Y and Z are on the same network | none |
+| **Mesh overlay** | X, Y and Z are on different networks | Tailscale (ZeroTier/NetBird work the same way) |
+
+Tailscale is **optional for a LAN run** and **required only for a cross-network run**. It is a
+split-tunnel mesh overlay, not a full-tunnel VPN. See
+[Deploying across different networks (WAN)](#deploying-across-different-networks-wan).
+
+- **Three machines** — on one LAN or reachable through a mesh overlay — with these ports free:
 
   | Port | Bound by | Purpose |
   |------|----------|---------|
@@ -115,17 +131,64 @@ FYP/
   | `8000` | Middle Y | accepts the WebSocket connection from End Z |
   | `8002` | Middle Y | dashboard feed (plain WebSocket) |
 
-- **Windows is recommended but not required.** `common/win.py` calls `timeBeginPeriod(1)` so 60 Hz ticks are not quantised to the default 15.6 ms timer; on other platforms the call is swallowed and the OS timer is used as-is.
-- **A browser** on any machine for `dashboard.html`.
-- **No VPN on any of the three machines while testing.** VPN adapters (Surfshark, corporate, etc.)
-  hijack the default route and can make LAN peers unreachable or add an unpredictable RTT.
+- **No full-tunnel VPN while testing.** Clients such as Surfshark or a corporate VPN hijack the
+  default route and can make peers unreachable or add an unpredictable RTT. **Tailscale is the
+  supported exception**: it routes only the tailnet addresses. If a machine already has a
+  full-tunnel VPN, disconnect it before running the demo; leave Tailscale connected if you need it.
 
 ---
 
-## Quick Start — three machines on one LAN
+## Before You Start — Record Your Addresses
 
-The commands below use the example LAN `192.168.0.0/24` with Cloud X at `192.168.0.181`.
-Replace the addresses with your own (`ipconfig` on each machine).
+Every deployment has different addresses. Fill in this table first; the commands below use the
+placeholders in the left column. **Replace the placeholder text — do not type the angle brackets.**
+
+| Value | How to find it | Your value |
+|-------|----------------|------------|
+| `<X_LAN_IP>` | `ipconfig` on Cloud X | |
+| `<Y_LAN_IP>` | `ipconfig` on Middle Y | |
+| `<Z_LAN_IP>` | `ipconfig` on End Z | |
+| `<X_TAILNET_NAME>` | `tailscale status` on Cloud X | |
+| `<Y_TAILNET_NAME>` | `tailscale status` on Middle Y | |
+| `<Z_TAILNET_NAME>` | `tailscale status` on End Z | |
+| `<X_TAILNET_IP>` | `tailscale ip -4` on Cloud X | |
+| `<Y_TAILNET_IP>` | `tailscale ip -4` on Middle Y | |
+| `<Z_TAILNET_IP>` | `tailscale ip -4` on End Z | |
+
+Then derive the addresses the commands need:
+
+| Placeholder | Use this value |
+|-------------|----------------|
+| `<X_ADDRESS>` | X LAN IP on a same-LAN run; X tailnet name or tailnet IP over Tailscale |
+| `<Y_ADDRESS>` | Y LAN IP on a same-LAN run; Y tailnet name or tailnet IP over Tailscale |
+| `<Y_DASHBOARD_ADDRESS>` | `127.0.0.1` when the browser runs on Y; otherwise `<Y_ADDRESS>` |
+
+On macOS/Linux, use `ip addr` or `ifconfig` instead of `ipconfig`. MagicDNS may be disabled in
+some tailnets; in that case use the `100.x` address from `tailscale ip -4`.
+
+### Generic example (not this project's addresses)
+
+On a home LAN where X is `192.168.1.10` and Y is `192.168.1.20`:
+
+- `<X_ADDRESS>` → `192.168.1.10`
+- `<Y_ADDRESS>` → `192.168.1.20`
+- `<Y_DASHBOARD_ADDRESS>` → `127.0.0.1` if the browser runs on Y, otherwise `192.168.1.20`
+
+On Tailscale with devices named `x-home` and `y-lab`, the same placeholders become:
+
+- `<X_ADDRESS>` → `x-home`
+- `<Y_ADDRESS>` → `y-lab`
+- `<Y_DASHBOARD_ADDRESS>` → `y-lab` for a browser on another machine
+
+The example values are illustrative only; use the values you recorded above.
+
+---
+
+## Start the System
+
+Start the tiers in this order: **Cloud X → Middle Y → End Z**. X first avoids an initial
+`X link down` message and a few seconds in edge mode. Y and Z reconnect automatically, so the
+order is not critical after the first start.
 
 ### 1. Install the same environment on all three machines
 
@@ -148,16 +211,19 @@ also prints the Python/pygame/Pillow/websockets versions so a mismatch is easy t
 Copy `background.png`, `bullet.png`, `player.jpg` and `rock.png` into `images/` on **Cloud X**
 and **Middle Y**. These four files are loaded at startup; Z does not need them.
 
-### 3. Give each machine a stable address
+### 3. Give each tier a stable address
 
-Use a DHCP reservation or a static address, and switch the VPN off. Each tier only needs to
-know the tier it connects to:
+For a same-LAN run, use a DHCP reservation or a static LAN address. For a Tailscale run, the
+MagicDNS name or `100.x` address stays stable even when an ISP changes the physical address.
+Switch any full-tunnel VPN off; Tailscale may stay connected.
 
-| Tier | Example address | Configuration needed |
-|------|-----------------|----------------------|
-| Cloud X | `192.168.0.181` | **none** — it listens on `0.0.0.0:8001` |
-| Middle Y | `192.168.0.182` | `FYP_X_IP` = Cloud X's address |
-| End Z | `192.168.0.183` | `FYP_Y_IP` = Middle Y's address |
+Each tier only needs to know the tier it connects to:
+
+| Tier | Connects to | Value to configure |
+|------|-------------|--------------------|
+| Cloud X | — | **none** — it listens on `0.0.0.0:8001` |
+| Middle Y | Cloud X | `FYP_X_IP` = `<X_ADDRESS>` |
+| End Z | Middle Y | `FYP_Y_IP` = `<Y_ADDRESS>` |
 
 `common/config.py` is the same file everywhere; the `run_*.cmd` launchers set those
 environment variables. They are `.cmd` rather than `.ps1` on purpose: the default Windows
@@ -165,8 +231,8 @@ execution policy (`Restricted`) blocks local PowerShell scripts, but batch files
 If you prefer to start the Python scripts by hand, set the variables first:
 
 ```powershell
-$env:FYP_X_IP = "192.168.0.181"   # only on Middle Y
-$env:FYP_Y_IP = "192.168.0.182"   # only on End Z
+$env:FYP_X_IP = "<X_ADDRESS>"   # only on Middle Y
+$env:FYP_Y_IP = "<Y_ADDRESS>"   # only on End Z
 ```
 
 ### 4. Allow the ports through Windows Firewall (once per machine)
@@ -187,37 +253,121 @@ New-NetFirewallRule -DisplayName "FYP Edge Y 8000 8002" -Direction Inbound `
 
 If `Get-NetConnectionProfile` reports `Public`, run
 `Set-NetConnectionProfile -InterfaceAlias "<name>" -NetworkCategory Private`.
+The Tailscale adapter is normally Private. If your rule is Private-only and the active adapter
+is Public, either change the adapter category or create the rule with `-Profile Any`
+(Administrator required).
 
 ### 5. Start the tiers — in this order
 
 Open one terminal per machine and **run from the repository root** so the `common` package
-imports correctly and the CSV logs land beside the scripts:
+imports correctly and the CSV logs land beside the scripts.
+
+#### Same LAN
 
 ```powershell
-.\run_x.cmd                          # Cloud X   -> "X ready: ws://192.168.0.181:8001"
-.\run_y.cmd 192.168.0.181            # Middle Y  -> "connected to X at ws://..."
-.\run_z.cmd 192.168.0.182            # End Z     -> opens the 960x540 game window
+.\run_x.cmd
+.\run_y.cmd <X_LAN_IP>            # Middle Y -> "connected to X at ws://..."
+.\run_z.cmd <Y_LAN_IP>            # End Z     -> opens the 960x540 game window
+```
+
+#### Tailscale / different networks
+
+Run `tailscale up` once on each machine and confirm the peers are visible before starting:
+
+```powershell
+tailscale up
+tailscale status
+```
+
+Then start the tiers using the tailnet names or `100.x` addresses:
+
+```powershell
+.\run_x.cmd
+.\run_y.cmd <X_TAILNET_NAME>      # or <X_TAILNET_IP>
+.\run_z.cmd <Y_TAILNET_NAME>      # or <Y_TAILNET_IP>
 ```
 
 The single argument is the address of the peer to dial, so the same launcher works on every
-network without editing a file.
+network without editing a file. The startup banners print the **physical LAN address**, not the
+tailnet address — use `tailscale ip -4` or the MagicDNS name when configuring the next machine.
+If `tailscale ping <peer>` reports `via DERP`, the path is relayed; allow extra baseline RTT and
+tune the thresholds as described in [Configuration](#configuration).
 
-X and Y now reconnect automatically, so the order is no longer critical, but starting X first
-avoids an initial `X link down` message and a couple of seconds in edge mode. The startup
-banners print the LAN address each tier is reachable on — use those when configuring the next
-machine.
+X and Y reconnect automatically, so the order is no longer critical, but starting X first avoids
+an initial `X link down` message and a couple of seconds in edge mode.
 
 ### 6. Open the dashboard
 
-Open `dashboard.html?ip=192.168.0.182` in a browser on any machine (the query parameter avoids
-the prompt), or double-click the file and enter **Y's IP** when asked. The page reconnects by
-itself if Y restarts.
+Open `dashboard.html?ip=<Y_DASHBOARD_ADDRESS>` in a browser, or double-click the file and enter
+Y's address when asked. For a browser on Y use `127.0.0.1`; from another machine use Y's LAN or
+tailnet address. See [Open the Dashboard](#open-the-dashboard) for all methods.
 
 ### Single-machine demo
 
 Start the three tiers in separate terminals as `.\run_x.cmd`, `.\run_y.cmd 127.0.0.1`,
 `.\run_z.cmd 127.0.0.1` — the defaults in `common/config.py` are all `127.0.0.1`, so this
-reproduces the original one-host setup.
+reproduces the original one-host setup. Then open the dashboard with `?ip=127.0.0.1`.
+
+---
+
+## Open the Dashboard
+
+`dashboard.html` is a static page that opens a WebSocket to Y on port `8002`. Y does not serve
+the page, and **`8002` is not an HTTP page** — do not browse to `http://<Y_ADDRESS>:8002`. Open
+the file instead.
+
+**Prerequisite:** Y must be running and listening:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8002 -State Listen
+```
+
+### Method 1 — double-click
+
+Open `dashboard.html`; when prompted, enter Y's address:
+
+| Browser runs on | Enter |
+|-----------------|-------|
+| the same machine as Y | `127.0.0.1` |
+| another LAN machine | `<Y_LAN_IP>` |
+| another Tailscale machine | `<Y_TAILNET_NAME>` or `<Y_TAILNET_IP>` |
+
+### Method 2 — URL with the `?ip=` query parameter
+
+```text
+dashboard.html?ip=<Y_DASHBOARD_ADDRESS>
+```
+
+When opening from disk, the query must be part of the file URL, for example:
+
+```text
+file:///C:/path/to/FYP/dashboard.html?ip=127.0.0.1
+```
+
+### Method 3 — local HTTP server (recommended when `?ip=` must be reliable)
+
+From the repository root:
+
+```powershell
+.\venv\Scripts\python.exe -m http.server 8080
+```
+
+Then open:
+
+```text
+http://localhost:8080/dashboard.html?ip=127.0.0.1
+```
+
+Replace `127.0.0.1` with `<Y_LAN_IP>` or `<Y_TAILNET_NAME>` when the browser is on another
+machine. Stop the server with `Ctrl+C` when done.
+
+### Dashboard from another network
+
+Allow inbound TCP `8002` on Y. The firewall rule above uses `-Profile Private`; if
+`Get-NetConnectionProfile` reports `Public`, use `-Profile Any` (Administrator) or change the
+adapter category. The page retries every second, so it reconnects after Y restarts. If it still
+shows `disconnected - retrying`, check that Y is running, that the `?ip=` value is correct, and
+that the 8002 rule applies to the active adapter profile.
 
 ---
 
@@ -239,7 +389,14 @@ The slider simulates a slower WAN link without touching the network stack. When 
 - **uplink** — every message Y sends to X (inputs, pings) is held for that delay;
 - **downlink** — every message X sends to Y (pongs, snapshots, frames) is held for that delay.
 
-The `DelayLine` queues are ordered and non-blocking, so delay is applied per message without reordering. Increase the slider past roughly **80 ms** and, after three consecutive samples, Y switches to `EDGE Y`; bring it back under **50 ms** and the mode returns to `CLOUD X` after 3 s. The dashboard's RTT value and the overlay on Z (`CLOUD X (high quality)` → `EDGE Y (fallback)`) confirm the migration.
+The `DelayLine` queues are ordered and non-blocking, so delay is applied per message without
+reordering. Increase the slider past your `HIGH_MS` threshold and, after `BAD_COUNT` consecutive
+samples, Y switches to `EDGE Y`; bring it below `LOW_MS` for `RECOVER_S` and the mode returns to
+`CLOUD X`. With the defaults on a healthy LAN that means roughly **80 ms** to switch and **50 ms**
+for 3 s to recover. If you tuned the thresholds for a WAN baseline
+(see [Tune for your network](#tune-for-your-network)), use those values instead. The dashboard's
+RTT value and the overlay on Z (`CLOUD X (high quality)` → `EDGE Y (fallback)`) confirm the
+migration.
 
 A real link failure is handled too: if the X connection drops (unplug Cloud X, restart it, or
 lose Wi-Fi) Y switches to `EDGE Y` immediately and keeps the game running, so Z never freezes.
@@ -345,12 +502,30 @@ All tunables live in `common/config.py`:
 | `RECOVER_S` | `FYP_RECOVER_S` | `3.0` | seconds below `LOW_MS` before switching back to X |
 | `Z_PING_EVERY` | `FYP_Z_PING_EVERY` | `6` | Z sends a Z↔Y latency probe every Nth input |
 
+### Tune for your network
+
 `HIGH_MS`/`LOW_MS` are calibrated for a healthy LAN (sub-millisecond RTT), where the mode only
-changes when the dashboard slider injects delay. On a WAN, measure the baseline first and set
-`FYP_HIGH_MS ≈ baseline + 35`, `FYP_LOW_MS ≈ baseline + 15`; otherwise Y may sit in fallback
-permanently or flap. All stream-quality knobs (`FYP_X_STREAM_EVERY`, `FYP_X_QUALITY`,
-`FYP_X_SIZE`, …) are environment variables too, so a remote deployment can be tuned without
-editing the tracked file.
+changes when the dashboard slider injects delay. **Every deployment has a different baseline**, so
+measure it before a run:
+
+1. Start X and Y with the dashboard slider at `0`.
+2. Watch `rtt_ms` on the dashboard or in `log_y.csv` for ~30 s.
+3. Set thresholds above that baseline:
+
+   ```powershell
+   $env:FYP_HIGH_MS   = "<baseline + 35>"
+   $env:FYP_LOW_MS    = "<baseline + 15>"
+   $env:FYP_RECOVER_S = "3.0"
+   ```
+
+   Use the same values on every run so results are comparable.
+
+On a LAN the baseline is typically 1–5 ms. On a Tailscale path it may be 20–80 ms; if
+`tailscale ping <peer>` reports `via DERP`, expect the higher end and set both thresholds above
+it. Otherwise Y may sit in fallback permanently or flap.
+
+All stream-quality knobs (`FYP_X_STREAM_EVERY`, `FYP_X_QUALITY`, `FYP_X_SIZE`, …) are environment
+variables too, so a remote deployment can be tuned without editing the tracked file.
 
 ---
 
@@ -362,37 +537,45 @@ accept inbound connections. Use a **mesh overlay VPN** instead. It traverses NAT
 encrypts the traffic, and gives each machine a stable address and name — so `common/config.py`
 does not change when an ISP hands out a new IP.
 
-Tailscale is the least-effort option (ZeroTier or NetBird work the same way):
+Tailscale is the least-effort option (ZeroTier or NetBird work the same way). It is **optional on
+one LAN** and **required when the three machines are on different networks**.
 
-1. Install it on X, Y and Z, sign all three into the same account, then on each machine:
+### Tailscale checklist
+
+1. Install Tailscale on X, Y and Z and sign all three into the same tailnet.
+2. On each machine, run `tailscale up`, then record the values in
+   [Before You Start](#before-you-start--record-your-addresses):
+
    ```powershell
-   tailscale up
-   tailscale ip -4            # this machine's 100.x address
-   tailscale status           # peers and whether each path is direct
-   tailscale ping y-lab       # "direct" or "via DERP"
+   tailscale status
+   tailscale ip -4
    ```
-   Name the devices in the admin console (e.g. `x-home`, `y-lab`, `z-mobile`), enable MagicDNS,
-   and disable key expiry for the demo devices. The startup banner prints the **physical** LAN
-   address, not the tailnet address — use `tailscale ip -4` (or the MagicDNS name) when
-   configuring the peers.
-2. Firewall: allow inbound TCP `8001` on X and `8000`/`8002` on Y for the **Private** profile.
-   The Tailscale adapter is normally Private; confirm with `Get-NetConnectionProfile`, and set
-   it to Private if it is reported as Public. Z needs no inbound rule.
-3. Start the tiers using the overlay names:
+
+3. Name the devices in the admin console (for example `x-home`, `y-lab`, `z-mobile`), enable
+   MagicDNS if you want to use names instead of `100.x` addresses, and disable key expiry for the
+   demo devices.
+4. Allow inbound TCP `8001` on X and `8000`/`8002` on Y for the active adapter profile. Z needs no
+   inbound rule. See [Start the System](#start-the-system) for the firewall commands.
+5. Start the tiers with the tailnet values — the same launchers and order as a LAN run:
+
    ```powershell
    .\run_x.cmd
-   .\run_y.cmd x-home
-   .\run_z.cmd y-lab
+   .\run_y.cmd <X_TAILNET_NAME>      # or <X_TAILNET_IP>
+   .\run_z.cmd <Y_TAILNET_NAME>      # or <Y_TAILNET_IP>
    ```
-   Dashboard: `dashboard.html?ip=y-lab`.
-4. If a laptop roams between networks, shorten dead-link detection with
-   `$env:FYP_PING_INTERVAL="5"; $env:FYP_PING_TIMEOUT="5"` on that machine. Y re-dials X every
-   2 s and Z re-dials Y every ~1 s, so the session recovers on its own after a network change.
 
-`tailscale ping` shows whether a hop is direct or relayed through DERP; a relayed path adds tens
-of milliseconds and is worth reporting. `tailscale netcheck` explains why a direct path was not
-established. If the overlay cannot be installed on a managed machine, expose Y with a reverse
-tunnel (e.g. Cloudflare Tunnel) and run Z through the same client — it works, but adds latency.
+   Dashboard: `dashboard.html?ip=<Y_DASHBOARD_ADDRESS>`.
+
+The startup banner prints the **physical LAN address**, not the tailnet address — use
+`tailscale ip -4` or the MagicDNS name when configuring the peers. `tailscale ping <peer>` shows
+whether a hop is direct or relayed through DERP; a relayed path adds tens of milliseconds and is
+worth reporting. `tailscale netcheck` explains why a direct path was not established. If the
+overlay cannot be installed on a managed machine, expose Y with a reverse tunnel (for example
+Cloudflare Tunnel) and run Z through the same client — it works, but adds latency.
+
+If a laptop roams between networks, shorten dead-link detection with
+`$env:FYP_PING_INTERVAL="5"; $env:FYP_PING_TIMEOUT="5"` on that machine. Y re-dials X every 2 s
+and Z re-dials Y every ~1 s, so the session recovers on its own after a network change.
 
 ### Bandwidth and data cost
 
@@ -423,12 +606,13 @@ edge tier is both faster and about ten times cheaper in data, which is a useful 
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `X link down (ConnectionRefusedError ...)` on Y | X not running, wrong `FYP_X_IP`, wrong port, or firewall | Start X; `Test-NetConnection <X_IP> -Port 8001` from Y; add the inbound rule |
-| Z shows `reconnecting to Y ...` | Y not running or port 8000 blocked | Start Y; `Test-NetConnection <Y_IP> -Port 8000` from Z |
-| Dashboard says `disconnected - retrying` | Wrong IP in `?ip=`, or port 8002 blocked | Re-open with `dashboard.html?ip=<Y_IP>`; check the Y firewall rule |
+| `X link down (ConnectionRefusedError ...)` on Y | X not running, wrong `FYP_X_IP`, wrong port, or firewall | Start X; `Test-NetConnection <X_ADDRESS> -Port 8001` from Y; add the inbound rule |
+| Z shows `reconnecting to Y ...` | Y not running or port 8000 blocked | Start Y; `Test-NetConnection <Y_ADDRESS> -Port 8000` from Z |
+| Dashboard says `disconnected - retrying` | Wrong address in `?ip=`, or port 8002 blocked | Re-open with `dashboard.html?ip=<Y_DASHBOARD_ADDRESS>`; check the Y firewall rule |
+| Dashboard opens but stays `connecting` | Y not running, wrong address, or 8002 blocked | Run `Get-NetTCPConnection -LocalPort 8002 -State Listen` on Y; retry with `?ip=127.0.0.1` |
 | `selftest.py` hashes differ | Different Python versions on X and Y (most likely), or a modified `common/game.py` | Install the same 3.13.x and the pinned `requirements.txt` on both, then re-run |
 | Mode never switches when the slider moves | Slider changed on a dashboard attached to a different Y, or X link is down | Check the dashboard's `Cloud X link` field; edit `HIGH_MS`/`LOW_MS` only if the real RTT baseline is high |
-| The startup banner shows a `10.x` / `100.x` address | A VPN owns the default route | Quit the VPN, then restart the tier |
+| The startup banner shows a `10.x` address | A full-tunnel VPN owns the default route | Quit the full-tunnel VPN, then restart the tier. A `100.x` address is normal when Tailscale is connected. |
 | `OSError: [WinError 10048]` (port in use) | Another instance or another app holds the port | `Get-NetTCPConnection -LocalPort 8001 -State Listen`, stop that process |
 | Frame rate drops, `render_ms` near 16 ms in `log_x.csv` | X's encode is the bottleneck | Raise `X_STREAM_EVERY` to 2 (30 fps) or lower `X_QUALITY` |
 
