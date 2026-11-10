@@ -321,5 +321,26 @@ HEAD   : 1cc8c98  "Add sync log ..."   (code; this update is the next commit)
   - Cleanup: y_run.out/err removed; y_test.out/err and ts_up.out/err are
     not present.
 
+[2026-11-10 13:35 +09:00 | from Y — H.264 fallback implemented]
+  - common/video.py: H264Encoder (h264_qsv -> h264_nvenc -> libx264) and
+    H264Decoder. QSV options: async_depth=1, low_delay_brc=1, preset=veryfast.
+  - Y fallback now encodes 480x270 @ 30 fps H.264, 1 Mbps, GOP 10.
+  - Z sends {"t":"hello","h264":true}; Y uses H.264 only when every connected
+    Z advertised support. Old Z (no hello) still receives JPEG.
+  - X still sends JPEG; Y forwards X frames unchanged.
+  - Frame markers: uppercase X/Y = JPEG (old layout); lowercase y =
+    y + keyframe byte + !II(tick,seq) + H.264 payload.
+  - Y keeps a GOP-aware per-Z queue for H.264; JPEG remains latest-frame-wins.
+  - requirements.txt adds av==19.0.2. Z must `git pull` and run
+    .\venv\Scripts\python.exe -m pip install -r requirements.txt
+  - Tests on Y:
+      QSV encode/decode: 30/30 frames, 3 keyframes
+      Y fallback + new Z: 132 H.264 frames, 132 decoded
+      old Z (no hello): 66 JPEG frames, 0 H.264
+      full X->Y->Z protocol: 160 JPEG while X up; 95 H.264 after X stopped,
+      95 decoded
+      selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged
+  - X mode is still JPEG (~20 Mbps); this change improves the Y fallback only.
+
 END OF SYNC
 

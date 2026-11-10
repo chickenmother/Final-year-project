@@ -38,6 +38,13 @@ def _pair(name, default):
 TICK_RATE = 60          # game ticks per second (each tick = 4 original 240 FPS frames)
 X_STREAM_EVERY = int(os.environ.get("FYP_X_STREAM_EVERY", "1"))   # 1 -> 60 fps
 Y_STREAM_EVERY = int(os.environ.get("FYP_Y_STREAM_EVERY", "2"))   # 2 -> 30 fps
+Y_FPS = max(1, TICK_RATE // Y_STREAM_EVERY)
+
+# Middle Y fallback encoder. Set FYP_Y_CODEC=jpeg to force the old path.
+# Uppercase source bytes ('X'/'Y') are JPEG; lowercase ('y') is H.264.
+Y_CODEC = os.environ.get("FYP_Y_CODEC", "h264").lower()
+Y_BITRATE = int(os.environ.get("FYP_Y_BITRATE", "1000000"))
+Y_GOP = int(os.environ.get("FYP_Y_GOP", "10"))
 
 WIN_W, WIN_H = _pair("FYP_WIN_SIZE", "960x540")        # window on Z
 X_SIZE = _pair("FYP_X_SIZE", "960x540")                # cloud X capture size

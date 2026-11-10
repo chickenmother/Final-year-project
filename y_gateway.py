@@ -1,5 +1,5 @@
 """EDGE Y (laptop A): sequencer + fallback renderer + latency monitor + mode switch + dashboard backend."""
-import asyncio, csv, json, struct, time
+import asyncio, collections, csv, json, struct, time
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
@@ -9,16 +9,21 @@ from common.win import hires_timer
 hires_timer()
 quiet_handshake_errors()
 from common.game import Game
+try:
+    from common.video import H264Encoder
+except ImportError:                      # PyAV not installed: JPEG fallback
+    H264Encoder = None
 
 TICK = 1 / C.TICK_RATE
 game = Game()
 state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
          "e2e": 0.0, "tick": 0, "linked": False}
 inp = {"keys": "", "seq": 0, "latch": False}
-zs = {}                # Z connection -> its "latest frame" slot
+zs = {}                # Z connection -> frame queue + capability slot
 last_fwd, bad, good_since = 0, 0, None
 up = down = None
 log_f = log_w = None
+y_encoder = None       # H.264 encoder for the EDGE Y fallback stream
 
 
 class DelayLine:                       # simulated one-way network delay, order preserving
@@ -48,11 +53,26 @@ class DelayLine:                       # simulated one-way network delay, order 
                 pass
 
 
-def broadcast(data):
-    """Never blocks. Each Z only ever holds the NEWEST unsent frame (stale frames are dropped)."""
+def broadcast(data, keyframe=True):
+    """Queue a frame for each Z.
+
+    JPEG frames are independent, so keyframe=True clears the queue and keeps
+    only the newest frame. H.264 frames are queued as a GOP so a P-frame is
+    never sent without the keyframe it depends on.
+    """
     for slot in zs.values():
-        slot["data"] = data
+        q = slot["queue"]
+        if keyframe:
+            q.clear()
+        q.append(data)
+        if len(q) > 30:                 # ~1 s at 30 fps; wait for the next keyframe
+            q.clear()
         slot["ev"].set()
+
+
+def all_h264():
+    """True only when every connected Z advertised H.264 support."""
+    return bool(zs) and all(slot["h264"] for slot in zs.values())
 
 
 async def z_sender(ws, slot, lock):
@@ -60,8 +80,8 @@ async def z_sender(ws, slot, lock):
         while True:
             await slot["ev"].wait()
             slot["ev"].clear()
-            data, slot["data"] = slot["data"], None
-            if data is not None:
+            while slot["queue"]:
+                data = slot["queue"].popleft()
                 async with lock:           # frames and pong replies share the socket
                     await ws.send(data)
     except (ConnectionClosed, OSError):
@@ -89,11 +109,12 @@ def update_mode():
 async def on_x_msg(msg):               # message from X, AFTER the simulated downlink delay
     global last_fwd
     if isinstance(msg, bytes):
+        # X keeps the original JPEG header: tick (4), seq (4), payload.
         tick = struct.unpack("!I", msg[:4])[0]
         state["lag"] = game.tick - tick
         if state["mode"] == "X" and tick > last_fwd:
             last_fwd = tick
-            broadcast(b"X" + msg)
+            broadcast(b"X" + msg, keyframe=True)
     else:
         m = json.loads(msg)
         if m["t"] == "pong":
@@ -105,6 +126,7 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
 
 
 async def tick_loop():
+    global y_encoder
     nxt = time.monotonic()
     while True:
         nxt += TICK
@@ -117,7 +139,24 @@ async def tick_loop():
         state["tick"] = game.tick
         up.put(json.dumps({"t": "in", "tick": game.tick, "keys": keys, "seq": seq}))
         if state["mode"] == "Y" and game.tick % C.Y_STREAM_EVERY == 0:
-            broadcast(b"Y" + struct.pack("!II", game.tick, seq) + game.render(C.Y_SIZE, C.Y_QUALITY, smooth=False))
+            if y_encoder is not None and all_h264():
+                try:
+                    img = game.render_image(C.Y_SIZE, smooth=False)
+                    for payload, key in y_encoder.encode(img):
+                        # Lowercase 'y' marks H.264; byte 1 is the keyframe flag.
+                        broadcast(b"y" + bytes([1 if key else 0])
+                                  + struct.pack("!II", game.tick, seq) + payload,
+                                  keyframe=key)
+                except Exception as exc:          # keep the tier alive
+                    print(f"H.264 encode failed ({exc!r}); falling back to JPEG")
+                    y_encoder = None
+                    broadcast(b"Y" + struct.pack("!II", game.tick, seq)
+                              + game.render(C.Y_SIZE, C.Y_QUALITY, smooth=False),
+                              keyframe=True)
+            else:
+                broadcast(b"Y" + struct.pack("!II", game.tick, seq)
+                          + game.render(C.Y_SIZE, C.Y_QUALITY, smooth=False),
+                          keyframe=True)
         now = time.monotonic()
         if nxt < now - 0.2:
             nxt = now                  # fell far behind: don't try to catch up
@@ -136,7 +175,7 @@ async def ping_loop():
 
 
 async def z_handler(ws):
-    slot = {"data": None, "ev": asyncio.Event()}
+    slot = {"queue": collections.deque(), "ev": asyncio.Event(), "h264": False}
     lock = asyncio.Lock()
     zs[ws] = slot
     sender = asyncio.create_task(z_sender(ws, slot, lock))
@@ -144,6 +183,10 @@ async def z_handler(ws):
     try:
         async for msg in ws:
             m = json.loads(msg)
+            if m.get("t") == "hello":
+                slot["h264"] = bool(m.get("h264"))
+                print(f"Z codec support: h264={slot['h264']}")
+                continue
             inp["keys"], inp["seq"] = m["keys"], m["n"]
             state["e2e"] = m.get("e2e", 0.0)
             state["rtt_zy"] = m.get("rzy", state["rtt_zy"])
@@ -203,11 +246,22 @@ async def x_session():
 
 
 async def main():
-    global up, down, log_f, log_w
+    global up, down, log_f, log_w, y_encoder
     log_f = open("log_y.csv", "w", newline="")
     log_w = csv.writer(log_f)
     log_w.writerow(["unix_time", "mode", "rtt_ms", "injected_delay_ms",
                     "e2e_ms_from_Z", "rtt_zy_ms_from_Z", "x_link"])
+
+    if C.Y_CODEC == "h264" and H264Encoder is not None:
+        try:
+            y_encoder = H264Encoder(C.Y_SIZE, C.Y_FPS, C.Y_BITRATE, C.Y_GOP)
+            print(f"Y fallback encoder: H.264 via {y_encoder.name} "
+                  f"({C.Y_SIZE[0]}x{C.Y_SIZE[1]} @ {C.Y_FPS} fps, {C.Y_BITRATE} bps)")
+        except Exception as exc:
+            print(f"Y fallback encoder: H.264 unavailable ({exc}); using JPEG")
+            y_encoder = None
+    else:
+        print("Y fallback encoder: JPEG (FYP_Y_CODEC=jpeg or PyAV missing)")
 
     up, down = DelayLine(), DelayLine()     # live for the whole process, attached per session
     loops = [asyncio.create_task(c) for c in (up.run(), down.run(), tick_loop(), ping_loop())]
@@ -234,6 +288,8 @@ async def main():
         for t in loops:
             t.cancel()
         await asyncio.gather(*loops, return_exceptions=True)
+        if y_encoder is not None:
+            y_encoder.close()
         log_f.close()
 
 

@@ -1,10 +1,14 @@
 """END NODE Z (laptop B): samples keyboard, shows frames. NO game logic.
-Does not need Pillow or the images."""
+Does not need Pillow or the images. H.264 frames are decoded with PyAV."""
 import asyncio, csv, io, json, struct, time
 import pygame
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.client import connect
 from common import config as C
+try:
+    from common.video import H264Decoder
+except ImportError:                      # PyAV not installed: JPEG only
+    H264Decoder = None
 from common.win import hires_timer
 hires_timer()
 
@@ -57,6 +61,7 @@ async def main():
         nonlocal nframes, last_frame
         overlay = shadow = None
         last_src = None
+        decoder = None
         async for msg in ws:
             if isinstance(msg, str):             # pong for our Z<->Y latency probe
                 m = json.loads(msg)
@@ -65,8 +70,25 @@ async def main():
                     st["rzy"] = ms if not st["rzy"] else 0.8 * st["rzy"] + 0.2 * ms
                 continue
             src = chr(msg[0])
-            tick, s = struct.unpack("!II", msg[1:9])
-            img = pygame.image.load(io.BytesIO(msg[9:]), "f.jpg")
+            if src in ("x", "y"):
+                # H.264: source | keyframe flag | tick | seq | payload
+                if H264Decoder is None:
+                    continue
+                keyframe = bool(msg[1])
+                tick, s = struct.unpack("!II", msg[2:10])
+                payload = msg[10:]
+                if decoder is None or last_src != src.upper() or keyframe:
+                    decoder = H264Decoder()
+                frames = decoder.decode(payload)
+                if not frames:
+                    continue
+                pil = frames[-1]
+                img = pygame.image.frombuffer(pil.tobytes(), pil.size, "RGB")
+                src = src.upper()                # overlay/log use X/Y
+            else:
+                # JPEG: source | tick | seq | payload
+                tick, s = struct.unpack("!II", msg[1:9])
+                img = pygame.image.load(io.BytesIO(msg[9:]), "f.jpg")
             if img.get_size() != (C.WIN_W, C.WIN_H):
                 img = pygame.transform.scale(img, (C.WIN_W, C.WIN_H))
             last_frame = img
@@ -121,6 +143,7 @@ async def main():
                     print(f"connected to Y at {C.Y_URI}")
                     sent.clear()
                     st["rzy"] = 0.0          # do not show the previous link's RTT
+                    await ws.send(json.dumps({"t": "hello", "h264": H264Decoder is not None}))
                     await session(ws)
             except (OSError, ConnectionClosed) as e:
                 print(f"Y link down ({e!r})")

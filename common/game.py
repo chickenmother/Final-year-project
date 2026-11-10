@@ -172,7 +172,7 @@ class Game:
         self.rng.setstate((v, tuple(internal), g))
 
     # ---------------- rendering (the ONLY part that differs in quality X vs Y) ----------------
-    def render(self, size, quality, smooth=True):
+    def render_image(self, size, smooth=True):
         f = _FRAME
         f.fill(BLACK)
         f.blit(BG, (0, 0))
@@ -182,6 +182,10 @@ class Game:
         for b in self.bullets:
             f.blit(BULLET_IMG, b)
         small = (pygame.transform.smoothscale if smooth else pygame.transform.scale)(f, size)
+        return Image.frombytes("RGB", size, pygame.image.tobytes(small, "RGB"))
+
+    def render(self, size, quality, smooth=True):
+        img = self.render_image(size, smooth)
         buf = io.BytesIO()
-        Image.frombytes("RGB", size, pygame.image.tobytes(small, "RGB")).save(buf, "JPEG", quality=quality)
+        img.save(buf, "JPEG", quality=quality)
         return buf.getvalue()

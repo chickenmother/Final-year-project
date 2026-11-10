@@ -29,7 +29,7 @@ End Node (Z)  ──►  Middle Edge Gateway (Y)  ──►  Cloud Server (X)
 | Tier | Process | Endpoint | Role |
 |------|---------|----------|------|
 | **Cloud X** | `x_server.py` | `ws://X_IP:8001` | Authoritative game-state execution engine; renders 960×540 JPEG at quality 80 |
-| **Middle Y** | `y_gateway.py` | `ws://Y_IP:8000` (to Z)<br>`ws://Y_IP:8002` (dashboard) | Decision proxy + sequencer, local fallback renderer, RTT monitor, dashboard backend |
+| **Middle Y** | `y_gateway.py` | `ws://Y_IP:8000` (to Z)<br>`ws://Y_IP:8002` (dashboard) | Decision proxy + sequencer, local fallback renderer (H.264), RTT monitor, dashboard backend |
 | **End Z** | `z_client.py` | connects to `ws://Y_IP:8000` | User input sampler (60 Hz), latency monitor, displays received footage |
 
 Input travels **up** the chain (Z → Y → X) and video travels **down** (X → Y → Z). Z contains no game logic and no image assets — it only samples the keyboard and blits frames. Both X and Y import the same `common/game.py`, which is what makes the fallback seamless.
@@ -38,7 +38,7 @@ Input travels **up** the chain (Z → Y → X) and video travels **down** (X →
 
 1. **Input up** — every tick, Z sends JSON `{"keys": "...", "n": <seq>, "e2e": <ms>}` to Y.
 2. **Sequencing** — Y advances its own copy of the game, then forwards `{"t":"in","tick":<n>,"keys":"...","seq":<n>}` to X. X only steps when `tick == game.tick + 1`; a larger jump triggers `need_snap` and a full state resync.
-3. **Frames down** — a frame is `1 byte source ('X' or 'Y') + struct.pack("!II", tick, seq) + JPEG bytes`. X and Y use the same layout, so Z needs no knowledge of which tier rendered it.
+3. **Frames down** — JPEG frames keep the original layout: `source ('X' or 'Y') + struct.pack("!II", tick, seq) + JPEG bytes`. Y's H.264 fallback uses lowercase `'y'`: `'y' + keyframe byte + struct.pack("!II", tick, seq) + H.264 bytes`. New Z clients advertise H.264 support with a `{"t":"hello","h264":true}` message; old Z clients do not, so Y keeps sending JPEG to them.
 4. **Telemetry** — Y pings X and pushes dashboard state every 0.2 s. Z measures the **Z↔Y** hop itself: every 6th input (`FYP_Z_PING_EVERY`) carries `{"pts": <clock>}`, Y echoes the timestamp, and Z reports both its end-to-end latency and the measured `rzy` in the next input so the dashboard can show both legs separately.
 
 ### Middle Y — decision proxy + local fallback
@@ -73,7 +73,7 @@ FYP/
 ├── run_z.cmd                    # End Z launcher (<Middle Y address>)
 ├── venv/                        # local virtual environment (git-ignored)
 ├── x_server.py                  # Cloud X — game engine + high-quality renderer
-├── y_gateway.py                 # Middle Y — proxy, fallback renderer, RTT monitor, dashboard
+├── y_gateway.py                 # Middle Y — proxy, H.264 fallback renderer, RTT monitor, dashboard
 ├── z_client.py                  # End Z — input sampling + frame display
 ├── selftest.py                  # determinism / resync check (run on X and Y)
 ├── dashboard.html               # live mode, RTT, lag and latency-injection dashboard
@@ -83,8 +83,9 @@ FYP/
 ├── common/                      # shared by X and Y
 │   ├── __init__.py
 │   ├── config.py                # env-overridable addresses, ports, tick rate, thresholds
-│   ├── game.py                  # deterministic game logic + JPEG renderer
+│   ├── game.py                  # deterministic game logic + frame renderer
 │   ├── net.py                   # LAN address helper used by the startup banners
+│   ├── video.py                 # PyAV H.264 encoder (Y) / decoder (Z)
 │   └── win.py                   # 1 ms Windows timer helper
 └── images/                      # required on X and Y only (Z does not need them)
     ├── background.png
@@ -108,6 +109,8 @@ FYP/
   - `pygame==2.6.1` — display, input, surface scaling and JPEG decoding on Z
   - `Pillow==11.3.0` — JPEG encoding on X and Y
   - `websockets==15.0.1` — the async client/server transport used by all three tiers
+  - `av==19.0.2` — PyAV H.264 encoding on Y and decoding on Z; without it, Y and Z fall back to JPEG
+
 - **The four image assets** in `images/` — `background.png`, `bullet.png`, `player.jpg`, `rock.png`. Required on **X and Y**; Z does not load them.
 - **Windows is recommended but not required.** `common/win.py` calls `timeBeginPeriod(1)` so 60 Hz ticks are not quantised to the default 15.6 ms timer; on other platforms the call is swallowed and the OS timer is used as-is.
 - **A browser** on any machine for `dashboard.html`.
@@ -495,7 +498,10 @@ All tunables live in `common/config.py`:
 | `X_SIZE` | `FYP_X_SIZE` (`960x540`) | `(960, 540)` | Cloud X capture size |
 | `X_QUALITY` | `FYP_X_QUALITY` | `80` | Cloud X JPEG quality |
 | `Y_SIZE` | `FYP_Y_SIZE` (`480x270`) | `(480, 270)` | Edge Y capture size |
-| `Y_QUALITY` | `FYP_Y_QUALITY` | `40` | Edge Y JPEG quality |
+| `Y_QUALITY` | `FYP_Y_QUALITY` | `40` | Edge Y JPEG quality (used only when H.264 is unavailable) |
+| `Y_CODEC` | `FYP_Y_CODEC` | `h264` | `h264` or `jpeg` for the Y fallback |
+| `Y_BITRATE` | `FYP_Y_BITRATE` | `1000000` | target H.264 bitrate in bits/s |
+| `Y_GOP` | `FYP_Y_GOP` | `10` | keyframe interval in frames |
 | `HIGH_MS` | `FYP_HIGH_MS` | `80` | RTT above which a sample counts as "bad" (X → Y) |
 | `LOW_MS` | `FYP_LOW_MS` | `50` | RTT below which recovery can begin (Y → X) |
 | `BAD_COUNT` | `FYP_BAD_COUNT` | `3` | consecutive bad samples before switching to Y |
@@ -634,8 +640,8 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
   the edge tier is meant to hide; the Z↔Y hop is untouched.
 - **One game, one input.** Multiple Z clients can watch, but they share a single input state and
   there is one game instance per Y.
-- **Quality knob only.** There is no bitrate cap or adaptive encoder; quality is fixed per tier by
-  `X_QUALITY`/`Y_QUALITY` and `X_SIZE`/`Y_SIZE`.
+- **Fixed encoding settings.** X still uses JPEG (no hardware/inter-frame encoder yet); Y's fallback
+  uses H.264 at a fixed bitrate/GOP. There is no adaptive bitrate or congestion control.
 
 ---
 

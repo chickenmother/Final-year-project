@@ -27,6 +27,8 @@ htmlcov/
 # ---- Measurement / runtime output ----
 log_*.csv
 *.log
+*.out
+*.err
 
 # ---- Secrets & local env ----
 .env
