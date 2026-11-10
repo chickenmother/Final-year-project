@@ -28,7 +28,7 @@ End Node (Z)  ──►  Middle Edge Gateway (Y)  ──►  Cloud Server (X)
 
 | Tier | Process | Endpoint | Role |
 |------|---------|----------|------|
-| **Cloud X** | `x_server.py` | `ws://X_IP:8001` | Authoritative game-state execution engine; renders 960×540 JPEG at quality 80 |
+| **Cloud X** | `x_server.py` | `ws://X_IP:8001` | Authoritative game-state execution engine; renders 960×540 and streams H.264 (NVENC/QSV/x264) with JPEG fallback |
 | **Middle Y** | `y_gateway.py` | `ws://Y_IP:8000` (to Z)<br>`ws://Y_IP:8002` (dashboard) | Decision proxy + sequencer, local fallback renderer (H.264), RTT monitor, dashboard backend |
 | **End Z** | `z_client.py` | connects to `ws://Y_IP:8000` | User input sampler (60 Hz), latency monitor, displays received footage |
 
@@ -38,17 +38,17 @@ Input travels **up** the chain (Z → Y → X) and video travels **down** (X →
 
 1. **Input up** — every tick, Z sends JSON `{"keys": "...", "n": <seq>, "e2e": <ms>}` to Y.
 2. **Sequencing** — Y advances its own copy of the game, then forwards `{"t":"in","tick":<n>,"keys":"...","seq":<n>}` to X. X only steps when `tick == game.tick + 1`; a larger jump triggers `need_snap` and a full state resync.
-3. **Frames down** — JPEG frames keep the original layout: `source ('X' or 'Y') + struct.pack("!II", tick, seq) + JPEG bytes`. Y's H.264 fallback uses lowercase `'y'`: `'y' + keyframe byte + struct.pack("!II", tick, seq) + H.264 bytes`. New Z clients advertise H.264 support with a `{"t":"hello","h264":true}` message; old Z clients do not, so Y keeps sending JPEG to them.
+3. **Frames down** — every frame starts with a source byte: `X`/`Y` = JPEG (`source + struct.pack("!II", tick, seq) + JPEG bytes`), `x`/`y` = H.264 (`source + keyframe byte + struct.pack("!II", tick, seq) + H.264 bytes`). Z advertises support with `{"t":"hello","h264":true}`; Y relays the combined capability to X as `{"t":"caps","h264":…}`, so X uses H.264 only when every connected Z can decode it. On a H.264 tick gap Z waits for a keyframe and sends `want_idr`, which Y relays as `{"t":"need_idr"}` so X emits an IDR.
 4. **Telemetry** — Y pings X and pushes dashboard state every 0.2 s. Z measures the **Z↔Y** hop itself: every 6th input (`FYP_Z_PING_EVERY`) carries `{"pts": <clock>}`, Y echoes the timestamp, and Z reports both its end-to-end latency and the measured `rzy` in the next input so the dashboard can show both legs separately.
 
 ### Middle Y — decision proxy + local fallback
 
 Middle Y separates the **data path** from the **monitoring path** so the game never waits on measurement:
 
-- **Data path (`tick_loop`):** Y advances its own copy of the game every tick (60 Hz), forwards the input to Cloud X with a sequence number, and — only while in `Y` mode — renders and broadcasts a 480×270 quality-40 frame every second tick (30 fps).
+- **Data path (`tick_loop`):** Y advances its own copy of the game every tick (60 Hz), forwards the input to Cloud X with a sequence number, and — only while in `Y` mode — encodes and broadcasts a 480×270 frame every second tick (30 fps; H.264 at 1 Mbps, JPEG fallback).
 - **Monitoring path (`ping_loop`):** every 0.2 s Y sends `{"t":"ping"}` to X; X replies with a `pong` carrying the original timestamp, giving the Y↔X RTT. The value is smoothed with an EWMA (`0.7 × old + 0.3 × new`).
 - **State machine (`update_mode`):** X → Y after **3 consecutive** RTT samples above **80 ms**; Y → X only after RTT has stayed below **50 ms** for **3 s**. The asymmetric thresholds and the recovery timer provide hysteresis, so the mode does not flap around a single threshold.
-- **Frame fan-out (`broadcast` / `z_sender`):** each connected Z holds a single "latest frame" slot. New frames overwrite unsent ones, so a slow client never builds a backlog — it simply receives the newest frame.
+- **Frame fan-out (`broadcast` / `z_sender`):** each Z has its own queue. JPEG overwrites older unsent frames (newest wins), while H.264 packets are queued in order and the queue is cleared only on a keyframe, so a P-frame is never sent without the reference it needs.
 
 ### Deterministic lock-step and resync
 
@@ -85,7 +85,7 @@ FYP/
 │   ├── config.py                # env-overridable addresses, ports, tick rate, thresholds
 │   ├── game.py                  # deterministic game logic + frame renderer
 │   ├── net.py                   # LAN address helper used by the startup banners
-│   ├── video.py                 # PyAV H.264 encoder (Y) / decoder (Z)
+│   ├── video.py                 # PyAV H.264 encoder (X, Y) / decoder (Z)
 │   └── win.py                   # 1 ms Windows timer helper
 └── images/                      # required on X and Y only (Z does not need them)
     ├── background.png
@@ -109,7 +109,7 @@ FYP/
   - `pygame==2.6.1` — display, input, surface scaling and JPEG decoding on Z
   - `Pillow==11.3.0` — JPEG encoding on X and Y
   - `websockets==15.0.1` — the async client/server transport used by all three tiers
-  - `av==19.0.2` — PyAV H.264 encoding on Y and decoding on Z; without it, Y and Z fall back to JPEG
+  - `av==19.0.2` — PyAV H.264 encoding on X and Y and decoding on Z; without it X/Y fall back to JPEG, and Z cannot decode H.264
 
 - **The four image assets** in `images/` — `background.png`, `bullet.png`, `player.jpg`, `rock.png`. Required on **X and Y**; Z does not load them.
 - **Windows is recommended but not required.** `common/win.py` calls `timeBeginPeriod(1)` so 60 Hz ticks are not quantised to the default 15.6 ms timer; on other platforms the call is swallowed and the OS timer is used as-is.
@@ -398,7 +398,7 @@ samples, Y switches to `EDGE Y`; bring it below `LOW_MS` for `RECOVER_S` and the
 `CLOUD X`. With the defaults on a healthy LAN that means roughly **80 ms** to switch and **50 ms**
 for 3 s to recover. If you tuned the thresholds for a WAN baseline
 (see [Tune for your network](#tune-for-your-network)), use those values instead. The dashboard's
-RTT value and the overlay on Z (`CLOUD X (high quality)` → `EDGE Y (fallback)`) confirm the
+RTT value and the overlay on Z (`CLOUD X (H.264)` → `EDGE Y (H.264)`) confirm the
 migration.
 
 A real link failure is handled too: if the X connection drops (unplug Cloud X, restart it, or
@@ -432,9 +432,9 @@ render bytes: <X bytes> (X) <Y bytes> (Y)
 The **hash must be identical on both machines** and `resync OK` must be printed — that is what guarantees Y can take over from X without a visible state jump. Compare the `host`/version lines too: a different Python version is the most likely reason for a hash mismatch.
 
 For a quick X-side capacity check, start X alone, play for a minute, then look at
-`log_x.csv`: `render_ms` is the per-frame encoding cost and `jpeg_bytes × 60` is roughly the
-upstream bandwidth X needs in `CLOUD X` mode. On the reference machine the first frames cost
-~25 ms and then settle at 7–10 ms for ~42 KB frames, i.e. about **20 Mbps** at 60 fps.
+`log_x.csv`: `encode_ms` is the render + encode cost and `frame_bytes` is the encoded size.
+On the reference machine (NVENC) H.264 averages ~3–4 KB per frame at 60 fps, i.e.
+**~1–2 Mbps** against the 4 Mbps target; JPEG mode is ~42 KB/frame (~20 Mbps).
 
 ## Output & Logs
 
@@ -447,8 +447,9 @@ All three logs are written to the **current working directory** (run from the re
 | `unix_time` | wall-clock timestamp of the render |
 | `tick` | game tick in the frame header |
 | `seq` | input sequence number carried in the frame header |
-| `render_ms` | time spent in `game.render()` (blit + scale + JPEG encode) |
-| `jpeg_bytes` | encoded frame size, i.e. the bandwidth consumed by that frame |
+| `codec` | `h264` or `jpeg` for the frame that was sent |
+| `encode_ms` | time spent rendering + encoding the frame |
+| `frame_bytes` | encoded payload size (H.264 access unit or JPEG) |
 
 `log_y.csv` — written by Middle Y every 0.2 s:
 
@@ -468,6 +469,7 @@ All three logs are written to the **current working directory** (run from the re
 |--------|---------|
 | `unix_time` | wall-clock timestamp of display |
 | `source` | tier that produced the frame (`X` or `Y`) |
+| `codec` | `h264` or `jpeg` |
 | `tick` | game tick carried in the frame header |
 | `e2e_ms` | input→display latency in milliseconds |
 | `rtt_zy_ms` | current Z↔Y round-trip time measured by the probe loop |
@@ -496,7 +498,11 @@ All tunables live in `common/config.py`:
 | `Y_STREAM_EVERY` | `FYP_Y_STREAM_EVERY` | `2` | Y renders every Nth tick |
 | `WIN_W`, `WIN_H` | `FYP_WIN_SIZE` (`960x540`) | `960`, `540` | window size on Z |
 | `X_SIZE` | `FYP_X_SIZE` (`960x540`) | `(960, 540)` | Cloud X capture size |
-| `X_QUALITY` | `FYP_X_QUALITY` | `80` | Cloud X JPEG quality |
+| `X_QUALITY` | `FYP_X_QUALITY` | `80` | Cloud X JPEG quality (fallback mode) |
+| `X_CODEC` | `FYP_X_CODEC` | `h264` | `h264` or `jpeg` for the cloud stream |
+| `X_BITRATE` | `FYP_X_BITRATE` | `4000000` | target H.264 bitrate in bits/s |
+| `X_GOP` | `FYP_X_GOP` | `30` | keyframe interval in frames |
+| `X_FPS` | — | `TICK_RATE // X_STREAM_EVERY` | frames per second X encodes |
 | `Y_SIZE` | `FYP_Y_SIZE` (`480x270`) | `(480, 270)` | Edge Y capture size |
 | `Y_QUALITY` | `FYP_Y_QUALITY` | `40` | Edge Y JPEG quality (used only when H.264 is unavailable) |
 | `Y_CODEC` | `FYP_Y_CODEC` | `h264` | `h264` or `jpeg` for the Y fallback |
@@ -587,13 +593,14 @@ and Z re-dials Y every ~1 s, so the session recovers on its own after a network 
 
 | Mode | Frame | Rate | Downstream to Z | Mobile data |
 |------|-------|------|-----------------|-------------|
-| `CLOUD X` | ~42 KB (960×540 q80) | 60 fps | ~20 Mbps | ~150 MB/min |
-| `EDGE Y` | ~8 KB (480×270 q40) | 30 fps | ~2 Mbps | ~15 MB/min |
+| `CLOUD X` (H.264) | ~3–4 KB (960×540, 4 Mbps cap) | 60 fps | ~1–2 Mbps | ~10–20 MB/min |
+| `CLOUD X` (JPEG) | ~42 KB (960×540 q80) | 60 fps | ~20 Mbps | ~150 MB/min |
+| `EDGE Y` (H.264) | ~4 KB (480×270, 1 Mbps cap) | 30 fps | ~1 Mbps | ~7 MB/min |
 
-X also needs roughly 20 Mbps **upstream** in `CLOUD X` mode. If any link cannot sustain that,
-lower `FYP_X_STREAM_EVERY` (2 → ~10 Mbps) and/or `FYP_X_QUALITY`/`FYP_X_SIZE` on X — the
-environment variables can be set per deployment. On a mobile hotspot, prefer short runs: the
-edge tier is both faster and about ten times cheaper in data, which is a useful result in itself.
+H.264 typically cuts the cloud stream by an order of magnitude at comparable quality. X targets
+`FYP_X_BITRATE` (default 4 Mbps) and falls back to JPEG when PyAV or the capability handshake is
+unavailable. If a link still cannot cope, lower `FYP_X_STREAM_EVERY` (2 → 30 fps) or
+`FYP_X_BITRATE`/`FYP_X_SIZE`. On a mobile hotspot, prefer short runs.
 
 ### Experiment design for a WAN
 
@@ -640,8 +647,10 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
   the edge tier is meant to hide; the Z↔Y hop is untouched.
 - **One game, one input.** Multiple Z clients can watch, but they share a single input state and
   there is one game instance per Y.
-- **Fixed encoding settings.** X still uses JPEG (no hardware/inter-frame encoder yet); Y's fallback
-  uses H.264 at a fixed bitrate/GOP. There is no adaptive bitrate or congestion control.
+- **Fixed encoding settings.** X and Y use H.264 at a fixed target bitrate/GOP
+  (`FYP_X_BITRATE`/`FYP_X_GOP`, `FYP_Y_BITRATE`/`FYP_Y_GOP`) with JPEG fallback; there is no
+  adaptive bitrate or congestion control. A dropped frame is repaired by the next keyframe, or
+  sooner when Z requests an IDR.
 
 ---
 

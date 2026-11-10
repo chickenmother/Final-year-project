@@ -1,10 +1,10 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-03 13:20 +09:00   (from Y)
+Last updated : 2026-11-10 17:35 +09:00   (from X)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
-HEAD   : 1cc8c98  "Add sync log ..."   (code; this update is the next commit)
+HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commit)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
@@ -341,6 +341,48 @@ HEAD   : 1cc8c98  "Add sync log ..."   (code; this update is the next commit)
       95 decoded
       selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged
   - X mode is still JPEG (~20 Mbps); this change improves the Y fallback only.
+
+[2026-11-10 17:35 +09:00 | from X — Cloud X H.264 implemented]
+  - X now encodes video too: common/video.py H264Encoder with the same
+    h264_qsv -> h264_nvenc -> libx264 chain as Y.
+  - Settings: 960x540 @ 60 fps, FYP_X_BITRATE=4000000, FYP_X_GOP=30.
+    On X the chosen encoder is h264_nvenc (measured ~8 ms/frame, ~1.2 Mbps
+    on the test scene, 1 packet/frame).
+  - Frame markers now (all three tiers must run this commit):
+      X = X JPEG   -> X | !II(tick,seq) | JPEG
+      x = X H.264  -> x | key | !II(tick,seq) | H.264
+      Y = Y JPEG,  y = Y H.264 (unchanged)
+    Y's on_x_msg parses the marker, forwards X frames unchanged and keeps a
+    GOP-aware per-Z queue.
+  - Capability: Y sends {"t":"caps","h264":bool} to X on connect, on every Z
+    connect/disconnect and after a Z hello. A new Z counts as JPEG-only until
+    its hello arrives, so X briefly drops to JPEG when a Z connects. X only
+    sends H.264 when every connected Z advertised support.
+  - IDR recovery: Z detects a tick gap, waits for a keyframe and sends
+    want_idr in its next input; Y relays {"t":"need_idr"}; X re-opens its
+    encoder so the next frame is an IDR.
+  - Y's own fallback is unchanged; Y only relays caps and need_idr.
+  - Z: log_z.csv gains a codec column; the overlay now shows
+    "CLOUD X (H.264)" / "EDGE Y (H.264)" or "(JPEG)".
+  - X log_x.csv columns are now:
+      unix_time, tick, seq, codec, encode_ms, frame_bytes
+    (render_ms / jpeg_bytes are gone).
+  - Tests on X (loopback, NVENC):
+      90/90 X H.264 frames decoded, ticks advancing, no JPEG while H.264
+      want_idr -> keyframe within 1 s (GOP forced to 300 to prove the request)
+      non-H.264 Z -> X switched to JPEG (119 frames), back to H.264 (80)
+      X killed -> Y fallback 85 H.264 frames, 85 decoded
+      real z_client: log_z rows X,h264 and then Y,h264; no decoder errors
+      FYP_X_CODEC=jpeg -> log_z X,jpeg and log_x codec=jpeg
+      selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged
+  - REQUIRED ON Y AND Z: git pull; then
+      .\venv\Scripts\python.exe -m pip install -r requirements.txt
+    (av==19.0.2 was already required; no new package.) The frame format
+    changed, so all three tiers must run this commit.
+  - Suggested env for the lab (no code changes):
+      X: FYP_X_BITRATE=4000000  FYP_X_GOP=30   (defaults)
+      if encode_ms + render cannot hold 60 fps: FYP_X_STREAM_EVERY=2
+      force the previous JPEG-only behaviour: FYP_X_CODEC=jpeg
 
 END OF SYNC
 

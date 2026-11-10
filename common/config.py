@@ -41,10 +41,17 @@ Y_STREAM_EVERY = int(os.environ.get("FYP_Y_STREAM_EVERY", "2"))   # 2 -> 30 fps
 Y_FPS = max(1, TICK_RATE // Y_STREAM_EVERY)
 
 # Middle Y fallback encoder. Set FYP_Y_CODEC=jpeg to force the old path.
-# Uppercase source bytes ('X'/'Y') are JPEG; lowercase ('y') is H.264.
+# Uppercase source bytes ('X'/'Y') are JPEG; lowercase ('x'/'y') is H.264.
 Y_CODEC = os.environ.get("FYP_Y_CODEC", "h264").lower()
 Y_BITRATE = int(os.environ.get("FYP_Y_BITRATE", "1000000"))
 Y_GOP = int(os.environ.get("FYP_Y_GOP", "10"))
+
+# Cloud X encoder. X only uses H.264 when every connected Z advertised support
+# (Middle Y forwards that capability); otherwise it keeps sending JPEG.
+X_FPS = max(1, TICK_RATE // X_STREAM_EVERY)
+X_CODEC = os.environ.get("FYP_X_CODEC", "h264").lower()
+X_BITRATE = int(os.environ.get("FYP_X_BITRATE", "4000000"))
+X_GOP = int(os.environ.get("FYP_X_GOP", "30"))
 
 WIN_W, WIN_H = _pair("FYP_WIN_SIZE", "960x540")        # window on Z
 X_SIZE = _pair("FYP_X_SIZE", "960x540")                # cloud X capture size

@@ -22,9 +22,9 @@ async def main():
     font = pygame.font.SysFont("consolas", 20)
     log_f = open("log_z.csv", "w", newline="")
     log = csv.writer(log_f)
-    log.writerow(["unix_time", "source", "tick", "e2e_ms", "rtt_zy_ms"])
+    log.writerow(["unix_time", "source", "codec", "tick", "e2e_ms", "rtt_zy_ms"])
 
-    sent, st = {}, {"e2e": 0.0, "rzy": 0.0}
+    sent, st = {}, {"e2e": 0.0, "rzy": 0.0, "want_idr": False}
     seq, nframes, running = 0, 0, True
     pending_space, last_frame = False, None
 
@@ -51,6 +51,8 @@ async def main():
             sent[seq] = time.monotonic()
             sent.pop(seq - 600, None)
             msg = {"keys": keys, "n": seq, "e2e": st["e2e"], "rzy": round(st["rzy"], 1)}
+            if st.pop("want_idr", False):        # the decoder lost its reference
+                msg["want_idr"] = True
             if seq % C.Z_PING_EVERY == 0:        # probe the Z<->Y hop a few times per second
                 msg["pts"] = time.monotonic()
             await ws.send(json.dumps(msg))
@@ -60,8 +62,11 @@ async def main():
     async def receiver(ws):
         nonlocal nframes, last_frame
         overlay = shadow = None
-        last_src = None
+        last_src = last_codec = None
         decoder = None
+        dec_src = None
+        need_key = True                          # wait for an IDR before decoding P-frames
+        last_tick = None
         async for msg in ws:
             if isinstance(msg, str):             # pong for our Z<->Y latency probe
                 m = json.loads(msg)
@@ -72,13 +77,24 @@ async def main():
             src = chr(msg[0])
             if src in ("x", "y"):
                 # H.264: source | keyframe flag | tick | seq | payload
+                codec = "h264"
                 if H264Decoder is None:
                     continue
                 keyframe = bool(msg[1])
                 tick, s = struct.unpack("!II", msg[2:10])
                 payload = msg[10:]
-                if decoder is None or last_src != src.upper() or keyframe:
-                    decoder = H264Decoder()
+                if decoder is None or dec_src != src:
+                    decoder, dec_src, need_key = H264Decoder(), src, True
+                if last_tick is not None and tick > last_tick + 1:
+                    if not need_key:
+                        st["want_idr"] = True    # a frame was dropped: ask for an IDR
+                    need_key = True              # do not draw until a clean reference arrives
+                last_tick = tick
+                if need_key and not keyframe:
+                    continue
+                if keyframe:
+                    need_key = False
+                    decoder.reset()
                 frames = decoder.decode(payload)
                 if not frames:
                     continue
@@ -87,6 +103,7 @@ async def main():
                 src = src.upper()                # overlay/log use X/Y
             else:
                 # JPEG: source | tick | seq | payload
+                codec = "jpeg"
                 tick, s = struct.unpack("!II", msg[1:9])
                 img = pygame.image.load(io.BytesIO(msg[9:]), "f.jpg")
             if img.get_size() != (C.WIN_W, C.WIN_H):
@@ -97,19 +114,20 @@ async def main():
             if t0:
                 ms = (time.monotonic() - t0) * 1000
                 st["e2e"] = ms if not st["e2e"] else 0.9 * st["e2e"] + 0.1 * ms
-                log.writerow([round(time.time(), 3), src, tick, round(ms, 1),
+                log.writerow([round(time.time(), 3), src, codec, tick, round(ms, 1),
                               round(st["rzy"], 1)])
             nframes += 1
             if nframes % 30 == 0:
                 log_f.flush()
             # the overlay only needs refreshing a few times per second
-            if overlay is None or src != last_src or nframes % 12 == 0:
+            if overlay is None or src != last_src or codec != last_codec or nframes % 12 == 0:
                 col = (80, 255, 120) if src == "X" else (255, 170, 50)
-                txt = (f"{'CLOUD X (high quality)' if src == 'X' else 'EDGE Y (fallback)'}"
+                txt = (f"{'CLOUD X' if src == 'X' else 'EDGE Y'} "
+                       f"({'H.264' if codec == 'h264' else 'JPEG'})"
                        f"   input->display {st['e2e']:.0f} ms   Y link {st['rzy']:.0f} ms")
                 shadow = font.render(txt, True, (0, 0, 0))
                 overlay = font.render(txt, True, col)
-                last_src = src
+                last_src, last_codec = src, codec
             screen.blit(shadow, (11, 11))
             screen.blit(overlay, (10, 10))
             pygame.display.flip()
@@ -142,7 +160,7 @@ async def main():
                                    ping_interval=C.PING_INTERVAL, ping_timeout=C.PING_TIMEOUT) as ws:
                     print(f"connected to Y at {C.Y_URI}")
                     sent.clear()
-                    st["rzy"] = 0.0          # do not show the previous link's RTT
+                    st["rzy"], st["want_idr"] = 0.0, False
                     await ws.send(json.dumps({"t": "hello", "h264": H264Decoder is not None}))
                     await session(ws)
             except (OSError, ConnectionClosed) as e:

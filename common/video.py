@@ -1,7 +1,7 @@
-"""H.264 encode/decode helpers for the edge fallback stream.
+"""H.264 encode/decode helpers for the cloud and edge video streams.
 
-PyAV is imported only by Middle Y (encoder) and End Z (decoder). Cloud X keeps
-sending JPEG for now, so X does not import this module.
+PyAV is imported by Cloud X and Middle Y (encoders) and End Z (decoder).
+Any tier without it falls back to JPEG, so the simulator still runs.
 """
 from fractions import Fraction
 
@@ -60,6 +60,11 @@ class H264Encoder:
         for packet in self.codec.encode(frame):
             out.append((bytes(packet), bool(packet.is_keyframe)))
         return out
+
+    def force_keyframe(self):
+        """Re-open the encoder so the next frame is an IDR with fresh SPS/PPS."""
+        self.codec = None
+        self._open()
 
     def close(self):
         if self.codec is not None:

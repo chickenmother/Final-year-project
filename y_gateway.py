@@ -24,6 +24,7 @@ last_fwd, bad, good_since = 0, 0, None
 up = down = None
 log_f = log_w = None
 y_encoder = None       # H.264 encoder for the EDGE Y fallback stream
+last_caps = None       # last H.264 capability advertised to X
 
 
 class DelayLine:                       # simulated one-way network delay, order preserving
@@ -75,6 +76,16 @@ def all_h264():
     return bool(zs) and all(slot["h264"] for slot in zs.values())
 
 
+def send_caps():
+    """Tell X whether it may send H.264 instead of JPEG."""
+    global last_caps
+    caps = all_h264()
+    if up is not None and up.fn is not None and caps != last_caps:
+        last_caps = caps
+        up.put(json.dumps({"t": "caps", "h264": caps}))
+        print(f"X stream codec: {'H.264' if caps else 'JPEG'}")
+
+
 async def z_sender(ws, slot, lock):
     try:
         while True:
@@ -109,12 +120,20 @@ def update_mode():
 async def on_x_msg(msg):               # message from X, AFTER the simulated downlink delay
     global last_fwd
     if isinstance(msg, bytes):
-        # X keeps the original JPEG header: tick (4), seq (4), payload.
-        tick = struct.unpack("!I", msg[:4])[0]
+        # X frames already carry their source byte: JPEG is 'X', H.264 is 'x'.
+        src = msg[0:1]
+        if src == b"x":                 # x | key | tick | seq | payload
+            tick = struct.unpack("!I", msg[2:6])[0]
+            key = bool(msg[1])
+        elif src == b"X":               # X | tick | seq | payload
+            tick = struct.unpack("!I", msg[1:5])[0]
+            key = True
+        else:
+            return                      # unknown marker: ignore rather than mis-parse
         state["lag"] = game.tick - tick
         if state["mode"] == "X" and tick > last_fwd:
             last_fwd = tick
-            broadcast(b"X" + msg, keyframe=True)
+            broadcast(msg, keyframe=key)
     else:
         m = json.loads(msg)
         if m["t"] == "pong":
@@ -180,16 +199,20 @@ async def z_handler(ws):
     zs[ws] = slot
     sender = asyncio.create_task(z_sender(ws, slot, lock))
     print("Z connected")
+    send_caps()          # treat a new Z as JPEG-only until it sends its hello
     try:
         async for msg in ws:
             m = json.loads(msg)
             if m.get("t") == "hello":
                 slot["h264"] = bool(m.get("h264"))
                 print(f"Z codec support: h264={slot['h264']}")
+                send_caps()
                 continue
             inp["keys"], inp["seq"] = m["keys"], m["n"]
             state["e2e"] = m.get("e2e", 0.0)
             state["rtt_zy"] = m.get("rzy", state["rtt_zy"])
+            if m.get("want_idr"):               # Z lost a frame: ask X for a keyframe
+                up.put(json.dumps({"t": "need_idr"}))
             if "pts" in m:                      # Z's Z<->Y latency probe: echo it back
                 async with lock:
                     await ws.send(json.dumps({"t": "pong", "ts": m["pts"]}))
@@ -200,6 +223,7 @@ async def z_handler(ws):
         zs.pop(ws, None)
         if not zs:
             inp["keys"] = ""           # do not keep steering after the player disconnects
+        send_caps()
 
 
 async def dash_handler(ws):
@@ -220,14 +244,15 @@ async def dash_handler(ws):
 
 async def x_session():
     """One connection to Cloud X. Returns when the link closes."""
-    global last_fwd, bad, good_since
+    global last_fwd, bad, good_since, last_caps
     async with connect(C.X_URI, max_size=4 << 20, compression=None,
                        ping_interval=C.PING_INTERVAL, ping_timeout=C.PING_TIMEOUT) as xws:
         print(f"connected to X at {C.X_URI}")
-        last_fwd, bad, good_since = 0, 0, None
+        last_fwd, bad, good_since, last_caps = 0, 0, None, None
         state["linked"], state["rtt"] = True, 0.0
         up.fn, down.fn = xws.send, on_x_msg
         up.delay = down.delay = state["delay_ms"] / 2000
+        send_caps()                     # tell X which codec the connected Z can take
 
         async def rx():
             async for m in xws:
