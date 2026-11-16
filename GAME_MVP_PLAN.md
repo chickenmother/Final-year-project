@@ -11,8 +11,16 @@ Milestone 1 (game core) is implemented in `game/`:
 - snapshot/restore and deterministic digest
 - unit tests in `tests/test_game_core.py`
 
-The legacy core in `common/game.py` remains the default. Set
-`FYP_GAME_CORE=v2` to use the new core while integration is in progress.
+Milestone 2 (menu + start/game-over protocol) is partially implemented:
+
+- local `ui/menu.py` on Z with VS Bot, light/medium/heavy selection, exit
+- disabled Leaderboard/Multiplayer placeholders
+- `start` message resets X/Y to the chosen workload and seed
+- X emits `game_over`; Y forwards it to Z; Z returns to the menu
+- leaderboard remains pending
+
+X and Y now import the v2 core directly. The legacy `common/game.py`
+remains available for `selftest.py` and older comparisons.
 
 ## 1. Goal
 

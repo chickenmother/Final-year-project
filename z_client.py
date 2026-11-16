@@ -1,10 +1,11 @@
 """END NODE Z (laptop B): samples keyboard, shows frames. NO game logic.
 Does not need Pillow or the images. H.264 frames are decoded with PyAV."""
-import asyncio, csv, io, json, struct, time
+import asyncio, csv, io, json, os, struct, time
 import pygame
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.client import connect
 from common import config as C
+from ui.menu import Menu
 try:
     from common.video import H264Decoder
 except ImportError:                      # PyAV not installed: JPEG only
@@ -20,11 +21,13 @@ async def main():
     screen = pygame.display.set_mode((C.WIN_W, C.WIN_H))
     pygame.display.set_caption("Z - end node (WASD + SPACE)")
     font = pygame.font.SysFont("consolas", 20)
+    menu = Menu(screen, font)
     log_f = open("log_z.csv", "w", newline="")
     log = csv.writer(log_f)
     log.writerow(["unix_time", "source", "codec", "tick", "e2e_ms", "rtt_zy_ms"])
 
-    sent, st = {}, {"e2e": 0.0, "rzy": 0.0, "want_idr": False}
+    sent, st = {}, {"e2e": 0.0, "rzy": 0.0, "want_idr": False,
+                    "game_over": False, "score": 0}
     seq, nframes, running = 0, 0, True
     pending_space, last_frame = False, None
 
@@ -41,7 +44,7 @@ async def main():
     async def input_loop(ws):
         nonlocal seq, pending_space
         nxt = time.monotonic()
-        while pump_events():
+        while pump_events() and not st["game_over"]:
             k = pygame.key.get_pressed()
             keys = "".join(c for c, kc in KEYMAP if k[kc])
             if pending_space and " " not in keys:
@@ -68,11 +71,17 @@ async def main():
         need_key = True                          # wait for an IDR before decoding P-frames
         last_tick = None
         async for msg in ws:
-            if isinstance(msg, str):             # pong for our Z<->Y latency probe
+            if isinstance(msg, str):
                 m = json.loads(msg)
-                if m.get("t") == "pong":
+                kind = m.get("t")
+                if kind == "pong":               # Z<->Y latency probe
                     ms = (time.monotonic() - m["ts"]) * 1000
                     st["rzy"] = ms if not st["rzy"] else 0.8 * st["rzy"] + 0.2 * ms
+                elif kind == "game_over":
+                    st["game_over"] = True
+                    st["score"] = int(m.get("score", 0))
+                    print(f"game over: score={st['score']}")
+                    return
                 continue
             src = chr(msg[0])
             if src in ("x", "y"):
@@ -153,20 +162,41 @@ async def main():
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    last_result, status = None, None
+    auto = os.environ.get("FYP_SKIP_MENU") == "1"
+    auto_workload = os.environ.get("FYP_MENU_WORKLOAD", "heavy")
     try:
         while running:
+            if auto:
+                choice = {"action": "start", "workload": auto_workload}
+                auto = False
+            else:
+                choice = menu.run(last_result, status)
+            if not choice or choice.get("action") != "start":
+                break
+
+            workload = choice.get("workload", "heavy")
+            st.update(e2e=0.0, rzy=0.0, want_idr=False, game_over=False, score=0)
+            sent.clear()
+            pending_space = False
+            status = None
             try:
                 async with connect(C.Y_URI, max_size=4 << 20, compression=None,
                                    ping_interval=C.PING_INTERVAL, ping_timeout=C.PING_TIMEOUT) as ws:
                     print(f"connected to Y at {C.Y_URI}")
-                    sent.clear()
-                    st["rzy"], st["want_idr"] = 0.0, False
                     await ws.send(json.dumps({"t": "hello", "h264": H264Decoder is not None}))
+                    await ws.send(json.dumps({"t": "start", "mode": "vs_bot",
+                                              "workload": workload, "seed": 12345}))
                     await session(ws)
             except (OSError, ConnectionClosed) as e:
                 print(f"Y link down ({e!r})")
-            if running:
-                await idle("reconnecting to Y ...")
+                status = f"Y link down: {e!r}"
+            else:
+                if st["game_over"]:
+                    last_result = st["score"]
+                    status = f"game over - score {last_result}"
+                elif running:
+                    status = "session ended"
     finally:
         log_f.close()
         pygame.quit()

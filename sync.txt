@@ -399,5 +399,20 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
     U local Z; milestones; logging; risks).
   - Next: Milestone 2 — menu on Z + X-only SQLite leaderboard.
 
+[2026-11-16 18:45 +09:00 | from Y — Menu + start/game-over protocol]
+  - Added ui/menu.py: local Z menu with VS Bot, light/medium/heavy
+    workload selection, disabled Leaderboard/Multiplayer placeholders,
+    Exit. No network needed to render the menu.
+  - z_client.py: menu-first loop; Start sends hello + {"t":"start"} and
+    enters play; game_over returns to menu with last score.
+  - x_server.py / y_gateway.py now import the v2 game core directly.
+  - start message resets X and Y to the chosen workload/seed and forces a
+    keyframe; X emits game_over once; Y forwards it to Z.
+  - Legacy common/game.py selftest still passes with its original hash.
+  - Tests: 8 unit tests pass; headless X->Y protocol test received 255
+    JPEG frames; headless Z connected and started successfully.
+  - Leaderboard remains disabled/pending (next milestone).
+  - Note: Direct multiplayer remains disabled; VS Bot is the playable mode.
+
 END OF SYNC
 

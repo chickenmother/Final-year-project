@@ -8,7 +8,7 @@ from common.net import lan_ip, quiet_handshake_errors
 from common.win import hires_timer
 hires_timer()
 quiet_handshake_errors()
-from common.game import Game
+from game.simulation import Game
 try:
     from common.video import H264Encoder
 except ImportError:                      # PyAV not installed: JPEG fallback
@@ -142,6 +142,9 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
             update_mode()
         elif m["t"] == "need_snap":
             up.put(json.dumps({"t": "snap", "s": game.snapshot()}))
+        elif m["t"] == "game_over":
+            broadcast(json.dumps(m), keyframe=True)
+            print(f"game over: score={m.get('score')}")
 
 
 async def tick_loop():
@@ -194,6 +197,7 @@ async def ping_loop():
 
 
 async def z_handler(ws):
+    global game, last_fwd, bad, good_since
     slot = {"queue": collections.deque(), "ev": asyncio.Event(), "h264": False}
     lock = asyncio.Lock()
     zs[ws] = slot
@@ -207,6 +211,21 @@ async def z_handler(ws):
                 slot["h264"] = bool(m.get("h264"))
                 print(f"Z codec support: h264={slot['h264']}")
                 send_caps()
+                continue
+            if m.get("t") == "start":
+                workload = m.get("workload", "light")
+                seed = int(m.get("seed", 12345))
+                game = Game(workload, seed=seed)
+                if y_encoder is not None:
+                    y_encoder.force_keyframe()
+                for slot in zs.values():
+                    slot["queue"].clear()
+                state.update(tick=0, mode="X", e2e=0.0, rtt_zy=0.0, lag=0)
+                inp.update(keys="", seq=0, latch=False)
+                last_fwd, bad, good_since = 0, 0, None
+                up.put(json.dumps({"t": "start", "workload": workload, "seed": seed}))
+                print(f"[{time.strftime('%X')}] game start requested: "
+                      f"workload={workload} seed={seed}")
                 continue
             inp["keys"], inp["seq"] = m["keys"], m["n"]
             state["e2e"] = m.get("e2e", 0.0)

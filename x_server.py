@@ -6,7 +6,7 @@ from common.net import lan_ip, quiet_handshake_errors
 from common.win import hires_timer
 hires_timer()
 quiet_handshake_errors()
-from common.game import Game
+from game.simulation import Game
 try:
     from common.video import H264Encoder
 except ImportError:                      # PyAV not installed: JPEG only
@@ -14,6 +14,7 @@ except ImportError:                      # PyAV not installed: JPEG only
 
 game = Game()
 resync = False
+game_over_sent = False
 x_encoder = None
 log_f = log_w = None
 n_logged = 0
@@ -29,7 +30,7 @@ def log_frame(tick, seq, codec, encode_ms, nbytes):
 
 
 async def handler(ws):
-    global resync, x_encoder
+    global resync, game_over_sent, game, x_encoder
     # Do NOT reset the game on connect: ask Y for its snapshot instead, so the
     # two tiers converge on whichever side kept the newer state. This also
     # survives a Y or X restart without a visible jump.
@@ -93,11 +94,24 @@ async def handler(ws):
                     z_h264, force_key = new, new
             elif t == "need_idr":
                 force_key = True
+            elif t == "start":
+                game = Game(m.get("workload", "light"), seed=int(m.get("seed", 12345)))
+                resync, game_over_sent = False, False
+                force_key = True
+                out["queue"].clear()
+                out["jpeg"] = None
+                print(f"[{time.strftime('%X')}] game start: "
+                      f"workload={game.workload.name} seed={game.seed}")
             elif t == "in":
                 if m["tick"] == game.tick + 1:
                     game.step(m["keys"])
+                    if game.game_over and not game_over_sent:
+                        game_over_sent = True
+                        await send(json.dumps({"t": "game_over",
+                                               "score": game.score,
+                                               "deaths": game.deaths}))
                     # if we are behind (inputs waiting), skip rendering so we catch up fast
-                    if game.tick % C.X_STREAM_EVERY == 0 and len(q) < 3:
+                    if not game.game_over and game.tick % C.X_STREAM_EVERY == 0 and len(q) < 3:
                         seq = m["seq"]
                         t0 = time.perf_counter()
                         if x_encoder is not None and z_h264:

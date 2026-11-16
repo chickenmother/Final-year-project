@@ -294,6 +294,9 @@ class Game:
         )
 
     def restore(self, state):
+        name = state.get("workload")
+        if name and name != self.workload.name:
+            self.workload = get_profile(name)
         self.tick = state["tick"]
         self.score = state["score"]
         self.deaths = state.get("deaths", 0)
