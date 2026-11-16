@@ -450,5 +450,30 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
     inspect log_y.csv rtt/mode and X stdout; likely X was not ready or
     the local threshold is still too tight.
 
+[2026-11-16 19:19 +09:00 | from X — 1920x1080 game + encoder choice]
+  - Game world, X capture, and Z window are now 1920x1080 by default
+    (FYP_WIN_SIZE / FYP_X_SIZE). Y fallback is 960x540 (FYP_Y_SIZE).
+  - Menu and pause/game-over overlays scale from their 960x540 layout
+    using screen size, so the 1080p window is not half-empty.
+  - X H.264 default raised to 8 Mbps; Y fallback to 2 Mbps.
+  - Encoder default is now libx264 instead of QSV. Measured at 1920x1080
+    on X: QSV render+encode ~32-35 ms/frame; libx264 ultrafast
+    ~1.9 ms/frame for encode alone. Hardware encoders can still be
+    selected with FYP_X_ENCODER=h264_qsv / h264_nvenc and FYP_Y_ENCODER.
+  - Added H264Encoder.encode_surface(), so X/Y encode the pygame surface
+    directly (RGBA -> VideoFrame.from_bytes) instead of a PIL round-trip.
+    Full 1080p render+encode is now ~14.5 ms avg / ~17 ms p95 on X.
+  - X still streams 30 fps by default (FYP_X_STREAM_EVERY=2) because
+    60 fps leaves almost no headroom; set it to 1 on a faster PC.
+  - Verified: 8 game-core tests pass; selftest hash still
+    30f043222e75fabf0ec80d2cd7edf6df; 12/12 H.264 frames decoded at
+    both 1920x1080 (X) and 960x540 (Y); X/Y encoders initialize at the
+    new sizes; menu draws at 1920x1080.
+  - Headless local X->Y->Z run on alternate ports: 241 X H.264 frames,
+    X encode_ms 12-16, Z displayed 30 frames, e2e ~49-56 ms on localhost.
+  - Next: pull on the target PC, run .\run_local.cmd, choose MEDIUM,
+    and compare log_x.csv encode_ms (expect ~2-4 ms) and log_y.csv
+    mode/rtt.
+
 END OF SYNC
 

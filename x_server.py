@@ -124,11 +124,11 @@ async def handler(ws):
                         t0 = time.perf_counter()
                         if x_encoder is not None and z_h264:
                             try:
-                                img = game.render_image(C.X_SIZE, True)
+                                frame = game.render_surface(C.X_SIZE, True)
                                 if force_key or out["need_key"]:
                                     x_encoder.force_keyframe()
                                     force_key = out["need_key"] = False
-                                packets = x_encoder.encode(img)
+                                packets = x_encoder.encode_surface(frame)
                                 nbytes, codec = 0, "h264"
                                 for payload, key in packets:
                                     nbytes += len(payload)
@@ -172,7 +172,8 @@ async def main():
 
     if C.X_CODEC == "h264" and H264Encoder is not None:
         try:
-            x_encoder = H264Encoder(C.X_SIZE, C.X_FPS, C.X_BITRATE, C.X_GOP)
+            x_encoder = H264Encoder(C.X_SIZE, C.X_FPS, C.X_BITRATE, C.X_GOP,
+                                    encoder=C.X_ENCODER)
             print(f"X video encoder: H.264 via {x_encoder.name} "
                   f"({C.X_SIZE[0]}x{C.X_SIZE[1]} @ {C.X_FPS} fps, "
                   f"{C.X_BITRATE} bps, GOP {C.X_GOP})")

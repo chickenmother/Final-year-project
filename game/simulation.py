@@ -331,6 +331,9 @@ class Game:
         return hashlib.md5(data).hexdigest()
 
     # ---------------- rendering ----------------
+    def render_surface(self, size, smooth=True):
+        return render_mod.render_surface(self, size, smooth)
+
     def render_image(self, size, smooth=True):
         return render_mod.render_image(self, size, smooth)
 

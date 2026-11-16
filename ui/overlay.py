@@ -3,11 +3,13 @@ import pygame
 
 
 class _Overlay:
-    def __init__(self, screen, font):
+    def __init__(self, screen, font=None):
         self.screen = screen
-        self.font = font
-        self.big = pygame.font.SysFont("consolas", 40, bold=True)
-        self.small = pygame.font.SysFont("consolas", 16)
+        w, h = screen.get_size()
+        self.sx, self.sy = w / 960.0, h / 540.0
+        self.font = pygame.font.SysFont("consolas", max(18, int(20 * self.sy)))
+        self.big = pygame.font.SysFont("consolas", max(32, int(40 * self.sy)), bold=True)
+        self.small = pygame.font.SysFont("consolas", max(14, int(16 * self.sy)))
         self.clock = pygame.time.Clock()
 
     def _button(self, rect, label, mouse, primary=False):
@@ -31,10 +33,12 @@ class _Overlay:
 class PauseMenu(_Overlay):
     def run(self, last_frame=None, score=0):
         w, h = self.screen.get_size()
+        bw, bh = int(340 * self.sx), int(52 * self.sy)
+        x = w // 2 - bw // 2
         buttons = {
-            "resume": pygame.Rect(w // 2 - 170, 250, 340, 52),
-            "retry": pygame.Rect(w // 2 - 170, 314, 340, 52),
-            "menu": pygame.Rect(w // 2 - 170, 378, 340, 52),
+            "resume": pygame.Rect(x, int(250 * self.sy), bw, bh),
+            "retry": pygame.Rect(x, int(314 * self.sy), bw, bh),
+            "menu": pygame.Rect(x, int(378 * self.sy), bw, bh),
         }
         while True:
             mouse = pygame.mouse.get_pos()
@@ -54,9 +58,9 @@ class PauseMenu(_Overlay):
                             return name
             self._shade(last_frame)
             title = self.big.render("PAUSED", True, (220, 240, 255))
-            self.screen.blit(title, title.get_rect(center=(w // 2, 150)))
+            self.screen.blit(title, title.get_rect(center=(w // 2, int(150 * self.sy))))
             sub = self.small.render(f"score: {score}", True, (170, 200, 225))
-            self.screen.blit(sub, sub.get_rect(center=(w // 2, 205)))
+            self.screen.blit(sub, sub.get_rect(center=(w // 2, int(205 * self.sy))))
             self._button(buttons["resume"], "RESUME  (Esc/R)", mouse, True)
             self._button(buttons["retry"], "RETRY  (T)", mouse)
             self._button(buttons["menu"], "MAIN MENU  (M)", mouse)
@@ -67,10 +71,12 @@ class PauseMenu(_Overlay):
 class GameOverMenu(_Overlay):
     def run(self, score=0, workload="heavy", deaths=0):
         w, h = self.screen.get_size()
+        bw, bh = int(340 * self.sx), int(52 * self.sy)
+        x = w // 2 - bw // 2
         buttons = {
-            "retry": pygame.Rect(w // 2 - 170, 290, 340, 52),
-            "menu": pygame.Rect(w // 2 - 170, 354, 340, 52),
-            "exit": pygame.Rect(w // 2 - 170, 418, 340, 52),
+            "retry": pygame.Rect(x, int(290 * self.sy), bw, bh),
+            "menu": pygame.Rect(x, int(354 * self.sy), bw, bh),
+            "exit": pygame.Rect(x, int(418 * self.sy), bw, bh),
         }
         while True:
             mouse = pygame.mouse.get_pos()
@@ -90,11 +96,11 @@ class GameOverMenu(_Overlay):
                             return name
             self.screen.fill((14, 18, 30))
             title = self.big.render("GAME OVER", True, (255, 190, 150))
-            self.screen.blit(title, title.get_rect(center=(w // 2, 150)))
+            self.screen.blit(title, title.get_rect(center=(w // 2, int(150 * self.sy))))
             sub = self.small.render(
                 f"score: {score}   deaths: {deaths}   workload: {workload}",
                 True, (180, 205, 225))
-            self.screen.blit(sub, sub.get_rect(center=(w // 2, 215)))
+            self.screen.blit(sub, sub.get_rect(center=(w // 2, int(215 * self.sy))))
             self._button(buttons["retry"], "RETRY  (R/Enter)", mouse, True)
             self._button(buttons["menu"], "MAIN MENU  (M/Esc)", mouse)
             self._button(buttons["exit"], "EXIT", mouse)

@@ -28,7 +28,7 @@ End Node (Z)  ──►  Middle Edge Gateway (Y)  ──►  Cloud Server (X)
 
 | Tier | Process | Endpoint | Role |
 |------|---------|----------|------|
-| **Cloud X** | `x_server.py` | `ws://X_IP:8001` | Authoritative game-state execution engine; renders 960×540 and streams H.264 (NVENC/QSV/x264) with JPEG fallback |
+| **Cloud X** | `x_server.py` | `ws://X_IP:8001` | Authoritative game-state execution engine; renders 1920×1080 and streams H.264 (x264/NVENC/QSV) with JPEG fallback |
 | **Middle Y** | `y_gateway.py` | `ws://Y_IP:8000` (to Z)<br>`ws://Y_IP:8002` (dashboard) | Decision proxy + sequencer, local fallback renderer (H.264), RTT monitor, dashboard backend |
 | **End Z** | `z_client.py` | connects to `ws://Y_IP:8000` | User input sampler (60 Hz), latency monitor, displays received footage |
 
@@ -45,7 +45,7 @@ Input travels **up** the chain (Z → Y → X) and video travels **down** (X →
 
 Middle Y separates the **data path** from the **monitoring path** so the game never waits on measurement:
 
-- **Data path (`tick_loop`):** Y advances its own copy of the game every tick (60 Hz), forwards the input to Cloud X with a sequence number, and — only while in `Y` mode — encodes and broadcasts a 480×270 frame every second tick (30 fps; H.264 at 1 Mbps, JPEG fallback).
+- **Data path (`tick_loop`):** Y advances its own copy of the game every tick (60 Hz), forwards the input to Cloud X with a sequence number, and — only while in `Y` mode — encodes and broadcasts a 960×540 frame every second tick (30 fps; H.264 at 2 Mbps, JPEG fallback).
 - **Monitoring path (`ping_loop`):** every 0.2 s Y sends `{"t":"ping"}` to X; X replies with a `pong` carrying the original timestamp, giving the Y↔X RTT. The value is smoothed with an EWMA (`0.7 × old + 0.3 × new`).
 - **State machine (`update_mode`):** X → Y after **3 consecutive** RTT samples above **80 ms**; Y → X only after RTT has stayed below **50 ms** for **3 s**. The asymmetric thresholds and the recovery timer provide hysteresis, so the mode does not flap around a single threshold.
 - **Frame fan-out (`broadcast` / `z_sender`):** each Z has its own queue. JPEG overwrites older unsent frames (newest wins), while H.264 packets are queued in order and the queue is cleared only on a keyframe, so a P-frame is never sent without the reference it needs.
@@ -285,7 +285,7 @@ imports correctly and the CSV logs land beside the scripts.
 ```powershell
 .\run_x.cmd
 .\run_y.cmd <X_LAN_IP>            # Middle Y -> "connected to X at ws://..."
-.\run_z.cmd <Y_LAN_IP>            # End Z     -> opens the 960x540 menu
+.\run_z.cmd <Y_LAN_IP>            # End Z     -> opens the 1920x1080 menu
 ```
 
 End Z starts with a **local menu**: VS Bot, workload selection (light/medium/heavy,
@@ -456,8 +456,8 @@ The **hash must be identical on both machines** and `resync OK` must be printed 
 
 For a quick X-side capacity check, start X alone, play for a minute, then look at
 `log_x.csv`: `encode_ms` is the render + encode cost and `frame_bytes` is the encoded size.
-On the reference machine (NVENC) H.264 averages ~3–4 KB per frame at 60 fps, i.e.
-**~1–2 Mbps** against the 4 Mbps target; JPEG mode is ~42 KB/frame (~20 Mbps).
+On the reference machine (libx264 ultrafast) H.264 averages ~10–20 KB per frame at 1080p/30 fps,
+i.e. **~5–8 Mbps** against the 8 Mbps target; JPEG mode is ~90–110 KB/frame (~45 Mbps).
 
 ## Output & Logs
 
@@ -517,19 +517,21 @@ All tunables live in `common/config.py`:
 | `PING_INTERVAL`, `PING_TIMEOUT` | `FYP_PING_INTERVAL`, `FYP_PING_TIMEOUT` | `15`, `15` | WebSocket keepalive, in seconds |
 | `RECONNECT_S` | — | `2.0` | wait before re-dialling a lost peer |
 | `TICK_RATE` | — | `60` | simulation ticks per second (each tick = 4 original 240 fps frames) |
-| `X_STREAM_EVERY` | `FYP_X_STREAM_EVERY` | `1` | X renders every Nth tick (2 → 30 fps, halves the bitrate) |
+| `X_STREAM_EVERY` | `FYP_X_STREAM_EVERY` | `2` | X renders every Nth tick (2 → 30 fps at 1080p; use 1 on a faster machine) |
 | `Y_STREAM_EVERY` | `FYP_Y_STREAM_EVERY` | `2` | Y renders every Nth tick |
-| `WIN_W`, `WIN_H` | `FYP_WIN_SIZE` (`960x540`) | `960`, `540` | window size on Z |
-| `X_SIZE` | `FYP_X_SIZE` (`960x540`) | `(960, 540)` | Cloud X capture size |
+| `WIN_W`, `WIN_H` | `FYP_WIN_SIZE` (`1920x1080`) | `1920`, `1080` | window size on Z |
+| `X_SIZE` | `FYP_X_SIZE` (`1920x1080`) | `(1920, 1080)` | Cloud X capture size |
 | `X_QUALITY` | `FYP_X_QUALITY` | `80` | Cloud X JPEG quality (fallback mode) |
 | `X_CODEC` | `FYP_X_CODEC` | `h264` | `h264` or `jpeg` for the cloud stream |
-| `X_BITRATE` | `FYP_X_BITRATE` | `4000000` | target H.264 bitrate in bits/s |
+| `X_ENCODER` | `FYP_X_ENCODER` | `libx264` | `libx264`, `h264_nvenc`, or `h264_qsv` |
+| `X_BITRATE` | `FYP_X_BITRATE` | `8000000` | target H.264 bitrate in bits/s |
 | `X_GOP` | `FYP_X_GOP` | `30` | keyframe interval in frames |
 | `X_FPS` | — | `TICK_RATE // X_STREAM_EVERY` | frames per second X encodes |
-| `Y_SIZE` | `FYP_Y_SIZE` (`480x270`) | `(480, 270)` | Edge Y capture size |
-| `Y_QUALITY` | `FYP_Y_QUALITY` | `40` | Edge Y JPEG quality (used only when H.264 is unavailable) |
+| `Y_SIZE` | `FYP_Y_SIZE` (`960x540`) | `(960, 540)` | Edge Y capture size |
+| `Y_QUALITY` | `FYP_Y_QUALITY` | `55` | Edge Y JPEG quality (used only when H.264 is unavailable) |
 | `Y_CODEC` | `FYP_Y_CODEC` | `h264` | `h264` or `jpeg` for the Y fallback |
-| `Y_BITRATE` | `FYP_Y_BITRATE` | `1000000` | target H.264 bitrate in bits/s |
+| `Y_ENCODER` | `FYP_Y_ENCODER` | `libx264` | `libx264`, `h264_nvenc`, or `h264_qsv` |
+| `Y_BITRATE` | `FYP_Y_BITRATE` | `2000000` | target H.264 bitrate in bits/s |
 | `Y_GOP` | `FYP_Y_GOP` | `10` | keyframe interval in frames |
 | `HIGH_MS` | `FYP_HIGH_MS` | `80` | RTT above which a sample counts as "bad" (X → Y) |
 | `LOW_MS` | `FYP_LOW_MS` | `50` | RTT below which recovery can begin (Y → X) |
@@ -616,14 +618,14 @@ and Z re-dials Y every ~1 s, so the session recovers on its own after a network 
 
 | Mode | Frame | Rate | Downstream to Z | Mobile data |
 |------|-------|------|-----------------|-------------|
-| `CLOUD X` (H.264) | ~3–4 KB (960×540, 4 Mbps cap) | 60 fps | ~1–2 Mbps | ~10–20 MB/min |
-| `CLOUD X` (JPEG) | ~42 KB (960×540 q80) | 60 fps | ~20 Mbps | ~150 MB/min |
-| `EDGE Y` (H.264) | ~4 KB (480×270, 1 Mbps cap) | 30 fps | ~1 Mbps | ~7 MB/min |
+| `CLOUD X` (H.264) | ~10–20 KB (1920×1080, 8 Mbps cap) | 30 fps | ~5–8 Mbps | ~40–60 MB/min |
+| `CLOUD X` (JPEG) | ~90–110 KB (1920×1080 q80) | 30 fps | ~45 Mbps | ~340 MB/min |
+| `EDGE Y` (H.264) | ~4–8 KB (960×540, 2 Mbps cap) | 30 fps | ~1–2 Mbps | ~7–15 MB/min |
 
 H.264 typically cuts the cloud stream by an order of magnitude at comparable quality. X targets
-`FYP_X_BITRATE` (default 4 Mbps) and falls back to JPEG when PyAV or the capability handshake is
-unavailable. If a link still cannot cope, lower `FYP_X_STREAM_EVERY` (2 → 30 fps) or
-`FYP_X_BITRATE`/`FYP_X_SIZE`. On a mobile hotspot, prefer short runs.
+`FYP_X_BITRATE` (default 8 Mbps) and falls back to JPEG when PyAV or the capability handshake is
+unavailable. If a link still cannot cope, raise `FYP_X_STREAM_EVERY` (2 → 30 fps, 3 → 20 fps) or
+lower `FYP_X_BITRATE`/`FYP_X_SIZE`. On a mobile hotspot, prefer short runs.
 
 ### Experiment design for a WAN
 
@@ -650,7 +652,7 @@ unavailable. If a link still cannot cope, lower `FYP_X_STREAM_EVERY` (2 → 30 f
 | Mode never switches when the slider moves | Slider changed on a dashboard attached to a different Y, or X link is down | Check the dashboard's `Cloud X link` field; edit `HIGH_MS`/`LOW_MS` only if the real RTT baseline is high |
 | The startup banner shows a `10.x` address | A full-tunnel VPN owns the default route | Quit the full-tunnel VPN, then restart the tier. A `100.x` address is normal when Tailscale is connected. |
 | `OSError: [WinError 10048]` (port in use) | Another instance or another app holds the port | `Get-NetTCPConnection -LocalPort 8001 -State Listen`, stop that process |
-| Frame rate drops, `render_ms` near 16 ms in `log_x.csv` | X's encode is the bottleneck | Raise `X_STREAM_EVERY` to 2 (30 fps) or lower `X_QUALITY` |
+| Frame rate drops, `encode_ms` consistently above ~25 ms in `log_x.csv` | X's render+encode is the bottleneck | Set `X_STREAM_EVERY=2` (30 fps) or 3 (20 fps), or lower `X_SIZE`/`X_QUALITY` |
 
 Keep the machines awake for the demo (`powercfg /change standby-timeout-ac 0`) and, if you will
 merge `log_y.csv` with `log_z.csv` by `unix_time`, synchronise the clocks (`w32tm /resync`).

@@ -16,8 +16,8 @@ class WorkloadConfig:
     particles_per_explosion: int = 20
     pathfinding_agents: int = 0
     raycast_checks: int = 0
-    width: int = 1600
-    height: int = 900
+    width: int = 1920
+    height: int = 1080
     tick_rate: int = 60
 
 

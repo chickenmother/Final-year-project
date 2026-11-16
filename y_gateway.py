@@ -168,8 +168,8 @@ async def tick_loop():
         if state["mode"] == "Y" and game.tick % C.Y_STREAM_EVERY == 0:
             if y_encoder is not None and all_h264():
                 try:
-                    img = game.render_image(C.Y_SIZE, smooth=False)
-                    for payload, key in y_encoder.encode(img):
+                    frame = game.render_surface(C.Y_SIZE, smooth=False)
+                    for payload, key in y_encoder.encode_surface(frame):
                         # Lowercase 'y' marks H.264; byte 1 is the keyframe flag.
                         broadcast(b"y" + bytes([1 if key else 0])
                                   + struct.pack("!II", game.tick, seq) + payload,
@@ -317,7 +317,8 @@ async def main():
 
     if C.Y_CODEC == "h264" and H264Encoder is not None:
         try:
-            y_encoder = H264Encoder(C.Y_SIZE, C.Y_FPS, C.Y_BITRATE, C.Y_GOP)
+            y_encoder = H264Encoder(C.Y_SIZE, C.Y_FPS, C.Y_BITRATE, C.Y_GOP,
+                                    encoder=C.Y_ENCODER)
             print(f"Y fallback encoder: H.264 via {y_encoder.name} "
                   f"({C.Y_SIZE[0]}x{C.Y_SIZE[1]} @ {C.Y_FPS} fps, {C.Y_BITRATE} bps)")
         except Exception as exc:

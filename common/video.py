@@ -9,13 +9,14 @@ import av
 
 
 class H264Encoder:
-    """Low-latency H.264 encoder with a hardware-first fallback chain."""
+    """Low-latency H.264 encoder (libx264 by default, optional hardware)."""
 
-    def __init__(self, size, fps, bitrate=1_000_000, gop=10):
+    def __init__(self, size, fps, bitrate=1_000_000, gop=10, encoder=None):
         self.size = size
         self.fps = max(1, int(fps))
         self.bitrate = int(bitrate)
         self.gop = max(1, int(gop))
+        self.encoder = (encoder or "libx264").lower()
         self.pts = 0
         self.force_next_keyframe = False
         self.codec = None
@@ -24,13 +25,20 @@ class H264Encoder:
         self._open()
 
     def _open(self):
-        candidates = [
-            ("h264_qsv", "nv12",
-             {"async_depth": "1", "low_delay_brc": "1", "preset": "veryfast"}),
-            ("h264_nvenc", "yuv420p", {}),
-            ("libx264", "yuv420p",
-             {"preset": "ultrafast", "tune": "zerolatency"}),
-        ]
+        # libx264 is the default because QSV at 1080p was ~32 ms/frame on the
+        # test laptop; libx264 ultrafast was ~2 ms/frame. Hardware encoders can
+        # be selected with FYP_X_ENCODER / FYP_Y_ENCODER.
+        available = {
+            "libx264": ("yuv420p", {"preset": "ultrafast", "tune": "zerolatency"}),
+            "h264_qsv": ("nv12",
+                         {"async_depth": "1", "low_delay_brc": "1",
+                          "preset": "veryfast"}),
+            "h264_nvenc": ("yuv420p", {}),
+        }
+        order = [self.encoder]
+        if self.encoder != "libx264":
+            order.append("libx264")
+        candidates = [(name,) + available[name] for name in order if name in available]
         last = None
         for name, pix_fmt, options in candidates:
             try:
@@ -53,6 +61,22 @@ class H264Encoder:
     def encode(self, image):
         """Encode one PIL image; returns [(payload_bytes, is_keyframe), ...]."""
         frame = av.VideoFrame.from_image(image)
+        return self._encode_frame(frame)
+
+    def encode_surface(self, surface):
+        """Encode a pygame surface without a PIL round-trip.
+
+        ``pygame.image.tobytes`` + ``VideoFrame.from_bytes`` is measurably
+        cheaper than ``to_image`` + ``VideoFrame.from_image`` at 1920x1080.
+        """
+        import pygame
+
+        w, h = surface.get_size()
+        raw = pygame.image.tobytes(surface, "RGBA")
+        frame = av.VideoFrame.from_bytes(raw, w, h, format="rgba")
+        return self._encode_frame(frame)
+
+    def _encode_frame(self, frame):
         if frame.format.name != self.pix_fmt:
             frame = frame.reformat(format=self.pix_fmt)
         if self.force_next_keyframe:

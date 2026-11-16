@@ -21,7 +21,7 @@ async def main():
     pygame.init()
     screen = pygame.display.set_mode((C.WIN_W, C.WIN_H))
     pygame.display.set_caption("Z - end node (WASD + SPACE)")
-    font = pygame.font.SysFont("consolas", 20)
+    font = pygame.font.SysFont("consolas", max(18, int(C.WIN_H / 36)))
     menu = Menu(screen, font)
     pause_menu = PauseMenu(screen, font)
     gameover_menu = GameOverMenu(screen, font)
