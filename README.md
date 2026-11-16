@@ -287,10 +287,12 @@ imports correctly and the CSV logs land beside the scripts.
 .\run_z.cmd <Y_LAN_IP>            # End Z     -> opens the 960x540 menu
 ```
 
-End Z starts with a **local menu**: VS Bot, workload selection (light/medium/heavy),
-disabled Leaderboard/Multiplayer placeholders, and Exit. Click **VS BOT** or press
-Enter/Space to start a match. `Esc` exits. The menu works even when X/Y are down;
-the leaderboard will be added in a later milestone.
+End Z starts with a **local menu**: VS Bot, workload selection (light/medium/heavy,
+with bot counts), disabled Leaderboard/Multiplayer placeholders, and Exit. Click
+**VS BOT** or press Enter/Space to start a match. In game, `Esc` opens the pause
+overlay (Resume/Retry/Main Menu); `Esc`/`R` resumes, `T` retries, `M` returns to
+the menu. Player death opens a game-over screen with Retry/Main Menu/Exit. The
+menu works even when X/Y are down; the leaderboard will be added later.
 
 #### Tailscale / different networks
 

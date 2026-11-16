@@ -414,5 +414,17 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
   - Leaderboard remains disabled/pending (next milestone).
   - Note: Direct multiplayer remains disabled; VS Bot is the playable mode.
 
+[2026-11-16 18:52 +09:00 | from Y — pause + game-over UI]
+  - Added ui/overlay.py: PauseMenu (Resume/Retry/Main Menu) and
+    GameOverMenu (Retry/Main Menu/Exit).
+  - z_client: Esc sends pause, opens overlay; pause freezes X/Y ticks.
+    Retry resets the same workload; Main Menu returns to the menu.
+    Player death shows the game-over screen with score/deaths.
+  - X/Y handle pause/resume messages; Y stops its tick loop while paused;
+    X ignores inputs while paused.
+  - Menu now shows bot counts per workload: light 0, medium 5, heavy 50.
+  - Tests: 8 unit tests pass; menu/overlay render headless; pause test
+    received 0 frames while paused and 41 after resume.
+
 END OF SYNC
 

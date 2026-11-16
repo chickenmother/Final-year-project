@@ -16,7 +16,9 @@ Milestone 2 (menu + start/game-over protocol) is partially implemented:
 - local `ui/menu.py` on Z with VS Bot, light/medium/heavy selection, exit
 - disabled Leaderboard/Multiplayer placeholders
 - `start` message resets X/Y to the chosen workload and seed
-- X emits `game_over`; Y forwards it to Z; Z returns to the menu
+- X emits `game_over`; Y forwards it to Z; Z shows a game-over screen
+- `ui/overlay.py`: pause overlay (Resume/Retry/Main Menu) and game-over screen
+- pause/resume messages freeze X/Y tick updates while the overlay is open
 - leaderboard remains pending
 
 X and Y now import the v2 core directly. The legacy `common/game.py`

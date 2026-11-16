@@ -6,6 +6,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.client import connect
 from common import config as C
 from ui.menu import Menu
+from ui.overlay import GameOverMenu, PauseMenu
 try:
     from common.video import H264Decoder
 except ImportError:                      # PyAV not installed: JPEG only
@@ -22,12 +23,16 @@ async def main():
     pygame.display.set_caption("Z - end node (WASD + SPACE)")
     font = pygame.font.SysFont("consolas", 20)
     menu = Menu(screen, font)
+    pause_menu = PauseMenu(screen, font)
+    gameover_menu = GameOverMenu(screen, font)
     log_f = open("log_z.csv", "w", newline="")
     log = csv.writer(log_f)
     log.writerow(["unix_time", "source", "codec", "tick", "e2e_ms", "rtt_zy_ms"])
 
     sent, st = {}, {"e2e": 0.0, "rzy": 0.0, "want_idr": False,
-                    "game_over": False, "score": 0}
+                    "game_over": False, "score": 0, "deaths": 0,
+                    "workload": "heavy", "pause_requested": False,
+                    "return_to_menu": False}
     seq, nframes, running = 0, 0, True
     pending_space, last_frame = False, None
 
@@ -37,6 +42,8 @@ async def main():
         for e in pygame.event.get():
             if e.type == pygame.QUIT:
                 running = False
+            if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
+                st["pause_requested"] = True
             if e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE:
                 pending_space = True        # a tap between two ticks must not be lost
         return running
@@ -45,6 +52,25 @@ async def main():
         nonlocal seq, pending_space
         nxt = time.monotonic()
         while pump_events() and not st["game_over"]:
+            if st.pop("pause_requested", False):
+                await ws.send(json.dumps({"t": "pause"}))
+                choice = pause_menu.run(last_frame, st["score"])
+                if choice == "retry":
+                    sent.clear()
+                    seq = 0
+                    pending_space = False
+                    st.update(e2e=0.0, rzy=0.0, want_idr=False,
+                              game_over=False, score=0, deaths=0)
+                    await ws.send(json.dumps({"t": "start", "mode": "vs_bot",
+                                              "workload": st["workload"], "seed": 12345}))
+                    continue
+                if choice in ("menu", "exit") or choice is None:
+                    if choice == "exit":
+                        running = False
+                    st["return_to_menu"] = True
+                    return
+                await ws.send(json.dumps({"t": "resume"}))
+                continue
             k = pygame.key.get_pressed()
             keys = "".join(c for c, kc in KEYMAP if k[kc])
             if pending_space and " " not in keys:
@@ -80,6 +106,7 @@ async def main():
                 elif kind == "game_over":
                     st["game_over"] = True
                     st["score"] = int(m.get("score", 0))
+                    st["deaths"] = int(m.get("deaths", 0))
                     print(f"game over: score={st['score']}")
                     return
                 continue
@@ -165,9 +192,13 @@ async def main():
     last_result, status = None, None
     auto = os.environ.get("FYP_SKIP_MENU") == "1"
     auto_workload = os.environ.get("FYP_MENU_WORKLOAD", "heavy")
+    pending_workload = None
     try:
         while running:
-            if auto:
+            if pending_workload is not None:
+                choice = {"action": "start", "workload": pending_workload}
+                pending_workload = None
+            elif auto:
                 choice = {"action": "start", "workload": auto_workload}
                 auto = False
             else:
@@ -176,7 +207,9 @@ async def main():
                 break
 
             workload = choice.get("workload", "heavy")
-            st.update(e2e=0.0, rzy=0.0, want_idr=False, game_over=False, score=0)
+            st.update(e2e=0.0, rzy=0.0, want_idr=False, game_over=False,
+                      score=0, deaths=0, workload=workload,
+                      pause_requested=False, return_to_menu=False)
             sent.clear()
             pending_space = False
             status = None
@@ -192,9 +225,17 @@ async def main():
                 print(f"Y link down ({e!r})")
                 status = f"Y link down: {e!r}"
             else:
-                if st["game_over"]:
+                if st.get("return_to_menu"):
+                    status = "returned to menu"
+                elif st["game_over"]:
                     last_result = st["score"]
-                    status = f"game over - score {last_result}"
+                    action = gameover_menu.run(st["score"], workload, st["deaths"])
+                    if action == "retry":
+                        pending_workload = workload
+                    elif action == "exit":
+                        break
+                    else:
+                        status = f"game over - score {last_result}"
                 elif running:
                     status = "session ended"
     finally:

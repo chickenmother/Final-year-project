@@ -7,6 +7,7 @@ milestones.
 import pygame
 
 WORKLOADS = ("light", "medium", "heavy")
+WORKLOAD_BOTS = {"light": 0, "medium": 5, "heavy": 50}
 
 
 class Menu:
@@ -66,8 +67,13 @@ class Menu:
             bg = (70, 130, 100) if active else (40, 50, 64)
             pygame.draw.rect(self.screen, bg, rect, border_radius=6)
             pygame.draw.rect(self.screen, (100, 150, 180), rect, 2, border_radius=6)
-            text = self.small.render(name.upper(), True, (240, 245, 250))
+            label = f"{name.upper()} ({WORKLOAD_BOTS[name]} bots)"
+            text = self.small.render(label, True, (240, 245, 250))
             self.screen.blit(text, text.get_rect(center=rect.center))
+        selected = self.small.render(
+            f"selected: {self.workload} ({WORKLOAD_BOTS[self.workload]} bots)",
+            True, (200, 220, 235))
+        self.screen.blit(selected, (w // 2 - 340, 455))
 
         if last_result is not None:
             msg = self.small.render(f"last score: {last_result}", True, (150, 230, 170))

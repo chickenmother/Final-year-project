@@ -21,6 +21,7 @@ state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
 inp = {"keys": "", "seq": 0, "latch": False}
 zs = {}                # Z connection -> frame queue + capability slot
 last_fwd, bad, good_since = 0, 0, None
+paused = False
 up = down = None
 log_f = log_w = None
 y_encoder = None       # H.264 encoder for the EDGE Y fallback stream
@@ -148,10 +149,14 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
 
 
 async def tick_loop():
-    global y_encoder
+    global y_encoder, paused
     nxt = time.monotonic()
     while True:
         nxt += TICK
+        if paused:
+            await asyncio.sleep(TICK)
+            nxt = time.monotonic()
+            continue
         keys = inp["keys"]
         if inp["latch"] and " " not in keys:
             keys += " "                # a short tap between two ticks is not lost
@@ -197,7 +202,7 @@ async def ping_loop():
 
 
 async def z_handler(ws):
-    global game, last_fwd, bad, good_since
+    global game, last_fwd, bad, good_since, paused
     slot = {"queue": collections.deque(), "ev": asyncio.Event(), "h264": False}
     lock = asyncio.Lock()
     zs[ws] = slot
@@ -212,10 +217,24 @@ async def z_handler(ws):
                 print(f"Z codec support: h264={slot['h264']}")
                 send_caps()
                 continue
+            if m.get("t") == "pause":
+                paused = True
+                state["paused"] = True
+                up.put(json.dumps({"t": "pause"}))
+                print("game paused")
+                continue
+            if m.get("t") == "resume":
+                paused = False
+                state["paused"] = False
+                up.put(json.dumps({"t": "resume"}))
+                print("game resumed")
+                continue
             if m.get("t") == "start":
                 workload = m.get("workload", "light")
                 seed = int(m.get("seed", 12345))
                 game = Game(workload, seed=seed)
+                paused = False
+                state["paused"] = False
                 if y_encoder is not None:
                     y_encoder.force_keyframe()
                 for slot in zs.values():
