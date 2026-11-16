@@ -2,6 +2,27 @@
 setlocal
 cd /d "%~dp0"
 
+rem Do not inherit a headless SDL setting or test-port overrides from a shell.
+set "SDL_VIDEODRIVER="
+set "FYP_X_HOST="
+set "FYP_Y_HOST="
+set "FYP_X_IP=127.0.0.1"
+set "FYP_Y_IP=127.0.0.1"
+set "FYP_X_PORT="
+set "FYP_Y_PORT_Z="
+set "FYP_Y_PORT_DASH="
+set "FYP_X_URI="
+set "FYP_Y_URI="
+set "FYP_SKIP_MENU="
+set "FYP_MENU_WORKLOAD="
+set "FYP_PING_INTERVAL="
+set "FYP_PING_TIMEOUT="
+
+rem A previous run can leave X/Y holding ports 8001/8000/8002, which makes the
+rem new tiers exit while Z connects to the stale gateway. Stop stale FYP
+rem python processes before starting a fresh local session.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -match '(x_server|y_gateway|z_client)\.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+
 if not exist "venv\Scripts\python.exe" (
     echo venv not found. Run:
     echo   py -3.13 -m venv venv

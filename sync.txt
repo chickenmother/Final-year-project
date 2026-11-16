@@ -492,5 +492,20 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
     30f043222e75fabf0ec80d2cd7edf6df, H.264 720p/960x540 round-trip
     decodes correctly, menu/overlays render at 1280x720.
 
+[2026-11-16 19:39 +09:00 | from X — Z window visibility / stale launcher fix]
+  - Root cause of "window not popping out": the test shell exported
+    SDL_VIDEODRIVER=dummy, so Z ran headless. Re-running run_local also
+    left old X/Y processes holding 8000/8001, so the new tiers exited
+    while Z connected to the stale gateway.
+  - run_z.cmd now clears SDL_VIDEODRIVER before starting Z.
+  - run_local.cmd now clears SDL_VIDEODRIVER, test port/URI overrides,
+    FYP_SKIP_MENU, FYP_MENU_WORKLOAD and the short ping intervals, then
+    stops stale FYP python processes (x_server/y_gateway/z_client)
+    before starting a fresh X/Y/Z set.
+  - Verified: local run listens on 0.0.0.0:8000/8001/8002, Z has a real
+    pygame window ("Z - end node (WASD + SPACE)"), log_z.csv stays empty
+    until Start (menu is visible), and a started run shows 720p60 X
+    H.264 frames with typical local e2e ~27-32 ms.
+
 END OF SYNC
 

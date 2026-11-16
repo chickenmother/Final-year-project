@@ -2,6 +2,10 @@
 setlocal
 cd /d "%~dp0"
 
+rem A headless SDL_VIDEODRIVER=dummy inherited from a test shell would hide the
+rem game window. Z is the only tier that needs a real display.
+set "SDL_VIDEODRIVER="
+
 rem First argument = LAN address of Middle Y.
 set "FYP_Y_IP=%~1"
 if "%FYP_Y_IP%"=="" set "FYP_Y_IP=192.168.0.182"

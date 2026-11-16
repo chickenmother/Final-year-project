@@ -651,7 +651,8 @@ unavailable. If a link still cannot cope, set `FYP_X_STREAM_EVERY=2` (30 fps) or
 | `selftest.py` hashes differ | Different Python versions on X and Y (most likely), or a modified `common/game.py` | Install the same 3.13.x and the pinned `requirements.txt` on both, then re-run |
 | Mode never switches when the slider moves | Slider changed on a dashboard attached to a different Y, or X link is down | Check the dashboard's `Cloud X link` field; edit `HIGH_MS`/`LOW_MS` only if the real RTT baseline is high |
 | The startup banner shows a `10.x` address | A full-tunnel VPN owns the default route | Quit the full-tunnel VPN, then restart the tier. A `100.x` address is normal when Tailscale is connected. |
-| `OSError: [WinError 10048]` (port in use) | Another instance or another app holds the port | `Get-NetTCPConnection -LocalPort 8001 -State Listen`, stop that process |
+| `OSError: [WinError 10048]` (port in use) | Another instance or another app holds the port | `Get-NetTCPConnection -LocalPort 8001 -State Listen`, stop that process; `run_local.cmd` also stops stale FYP processes |
+| Z window never appears, but the terminal is running | `SDL_VIDEODRIVER=dummy` was inherited from a test shell, or an old X/Y is holding the ports | Re-run `run_local.cmd` (it clears SDL and stale FYP processes); for a manual Z start, run `set SDL_VIDEODRIVER=` first |
 | Frame rate drops, `encode_ms` consistently above ~16 ms in `log_x.csv` | X's render+encode is the bottleneck | Set `X_STREAM_EVERY=2` (30 fps) or lower `X_SIZE`/`X_QUALITY` |
 
 Keep the machines awake for the demo (`powercfg /change standby-timeout-ac 0`) and, if you will
