@@ -426,5 +426,15 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
   - Tests: 8 unit tests pass; menu/overlay render headless; pause test
     received 0 frames while paused and 41 after resume.
 
+[2026-11-16 18:56 +09:00 | from Y — QSV first-frame freeze fix]
+  - force_keyframe() no longer re-opens the encoder. It marks the next
+    frame as an IDR (PictureType.I), avoiding QSV re-initialization.
+  - X log had 4.7–5.4 s encode_ms for the first frame after every start;
+    now forced frame ~18 ms and normal frames ~6–7 ms at 960x540.
+  - This removes the 5-second startup freeze that was making the game
+    feel laggy even on localhost.
+  - Second remaining performance item: ensure 60 fps budget after heavy
+    render/encode; measure again before changing frame rate/quality.
+
 END OF SYNC
 

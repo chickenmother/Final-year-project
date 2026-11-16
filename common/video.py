@@ -17,6 +17,7 @@ class H264Encoder:
         self.bitrate = int(bitrate)
         self.gop = max(1, int(gop))
         self.pts = 0
+        self.force_next_keyframe = False
         self.codec = None
         self.name = None
         self.pix_fmt = None
@@ -54,6 +55,9 @@ class H264Encoder:
         frame = av.VideoFrame.from_image(image)
         if frame.format.name != self.pix_fmt:
             frame = frame.reformat(format=self.pix_fmt)
+        if self.force_next_keyframe:
+            frame.pict_type = av.video.frame.PictureType.I
+            self.force_next_keyframe = False
         frame.pts = self.pts
         self.pts += 1
         out = []
@@ -62,9 +66,8 @@ class H264Encoder:
         return out
 
     def force_keyframe(self):
-        """Re-open the encoder so the next frame is an IDR with fresh SPS/PPS."""
-        self.codec = None
-        self._open()
+        """Make the next encoded frame an IDR without re-opening the encoder."""
+        self.force_next_keyframe = True
 
     def close(self):
         if self.codec is not None:
