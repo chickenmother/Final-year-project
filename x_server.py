@@ -1,5 +1,5 @@
 """CLOUD X (the cloud tier). Runs the full game, renders high quality, streams to Y."""
-import asyncio, collections, csv, json, struct, time
+import asyncio, collections, csv, json, os, struct, time
 from websockets.asyncio.server import serve
 from common import config as C
 from common.net import lan_ip, quiet_handshake_errors
@@ -166,7 +166,8 @@ async def handler(ws):
 
 async def main():
     global log_f, log_w, x_encoder
-    log_f = open("log_x.csv", "w", newline="")
+    os.makedirs("logs", exist_ok=True)
+    log_f = open(os.path.join("logs", "log_x.csv"), "w", newline="")
     log_w = csv.writer(log_f)
     log_w.writerow(["unix_time", "tick", "seq", "codec", "encode_ms", "frame_bytes"])
 

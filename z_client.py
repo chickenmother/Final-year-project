@@ -25,7 +25,8 @@ async def main():
     menu = Menu(screen, font)
     pause_menu = PauseMenu(screen, font)
     gameover_menu = GameOverMenu(screen, font)
-    log_f = open("log_z.csv", "w", newline="")
+    os.makedirs("logs", exist_ok=True)
+    log_f = open(os.path.join("logs", "log_z.csv"), "w", newline="")
     log = csv.writer(log_f)
     log.writerow(["unix_time", "source", "codec", "tick", "e2e_ms", "rtt_zy_ms"])
 

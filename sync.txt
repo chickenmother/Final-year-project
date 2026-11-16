@@ -507,5 +507,17 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
     until Start (menu is visible), and a started run shows 720p60 X
     H.264 frames with typical local e2e ~27-32 ms.
 
+[2026-11-16 19:45 +09:00 | from X — tidy runtime logs]
+  - Deleted the temporary *.out/*.err stdout/stderr captures from the
+    automated X->Y->Z tests; they were not needed by the game.
+  - x_server/y_gateway/z_client now create logs/ and write
+    logs/log_x.csv, logs/log_y.csv, logs/log_z.csv there.
+  - Added logs/.gitkeep and ignored logs/* except that file, so runtime
+    output never clutters the repository root.
+  - README tree, log-column docs and commands now use logs/log_*.csv.
+  - Verified: py_compile passes, headless X->Y->Z writes all three CSVs
+    under logs/, no root-level log_*.csv or *.out/*.err remain, 8 tests
+    pass, selftest hash 30f043222e75fabf0ec80d2cd7edf6df.
+
 END OF SYNC
 

@@ -25,6 +25,8 @@ htmlcov/
 .nox/
 
 # ---- Measurement / runtime output ----
+logs/*
+!logs/.gitkeep
 log_*.csv
 *.log
 *.out

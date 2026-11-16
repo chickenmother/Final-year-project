@@ -1,5 +1,5 @@
 """EDGE Y (laptop A): sequencer + fallback renderer + latency monitor + mode switch + dashboard backend."""
-import asyncio, collections, csv, json, struct, time
+import asyncio, collections, csv, json, os, struct, time
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
@@ -310,7 +310,8 @@ async def x_session():
 
 async def main():
     global up, down, log_f, log_w, y_encoder
-    log_f = open("log_y.csv", "w", newline="")
+    os.makedirs("logs", exist_ok=True)
+    log_f = open(os.path.join("logs", "log_y.csv"), "w", newline="")
     log_w = csv.writer(log_f)
     log_w.writerow(["unix_time", "mode", "rtt_ms", "injected_delay_ms",
                     "e2e_ms_from_Z", "rtt_zy_ms_from_Z", "x_link"])
