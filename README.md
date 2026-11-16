@@ -67,6 +67,7 @@ For a fallback node to take over mid-game, both X and Y must hold identical stat
 FYP/
 ├── .gitignore                   # venv, Python caches, logs, secrets, IDE files
 ├── README.md                    # this file
+├── GAME_MVP_PLAN.md             # task-placement game plan (Milestone 1+)
 ├── requirements.txt             # pinned packages (identical on all 3 machines)
 ├── run_x.cmd                    # Cloud X launcher (activates venv, sets FYP_* vars)
 ├── run_y.cmd                    # Middle Y launcher (<Cloud X address>)
@@ -83,10 +84,20 @@ FYP/
 ├── common/                      # shared by X and Y
 │   ├── __init__.py
 │   ├── config.py                # env-overridable addresses, ports, tick rate, thresholds
-│   ├── game.py                  # deterministic game logic + frame renderer
+│   ├── game.py                  # legacy deterministic core (v2 optional via FYP_GAME_CORE)
 │   ├── net.py                   # LAN address helper used by the startup banners
 │   ├── video.py                 # PyAV H.264 encoder (X, Y) / decoder (Z)
 │   └── win.py                   # 1 ms Windows timer helper
+├── game/                        # task-oriented game core (Milestone 1)
+│   ├── __init__.py
+│   ├── entities.py              # player, bot, obstacle, bullet, particle
+│   ├── simulation.py            # HP, bullets, bots, waves, snapshot/restore
+│   ├── hitreg.py                # spatial grid and damage helpers
+│   ├── effects.py               # pooled explosion particles
+│   ├── render.py                # world/HP/particle renderer
+│   └── workload.py              # light / medium / heavy profiles
+├── tests/
+│   └── test_game_core.py        # unit tests for the new core
 └── images/                      # required on X and Y only (Z does not need them)
     ├── background.png
     ├── bullet.png

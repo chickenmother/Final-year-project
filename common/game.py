@@ -189,3 +189,9 @@ class Game:
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=quality)
         return buf.getvalue()
+
+
+# Optional task-oriented core. The legacy class above stays the default so the
+# existing simulator and its determinism hash are unchanged.
+if os.environ.get("FYP_GAME_CORE", "").lower() == "v2":
+    from game.simulation import Game as Game  # noqa: F811

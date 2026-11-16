@@ -384,5 +384,20 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
       if encode_ms + render cannot hold 60 fps: FYP_X_STREAM_EVERY=2
       force the previous JPEG-only behaviour: FYP_X_CODEC=jpeg
 
+[2026-11-16 18:30 +09:00 | from Y — Game v2 Milestone 1]
+  - Added game/ package: entities, simulation, hitreg, effects, render,
+    workload. Player/bot/obstacle/bullet HP, bot shooting, waves,
+    explosion particles, spatial-grid collision.
+  - Workload profiles: light (8 obstacles, 0 bots), medium (100/5),
+    heavy (1000/50, 200 bullets/s, 300 particles).
+  - Snapshot/restore and deterministic digest for the new core.
+  - Legacy common/game.py remains the default; FYP_GAME_CORE=v2 selects
+    the new core.
+  - Unit tests: tests/test_game_core.py (8 tests, all pass). Legacy
+    selftest.py hash unchanged: 30f043222e75fabf0ec80d2cd7edf6df.
+  - Detailed plan: GAME_MVP_PLAN.md (task model A/B/C/D/E, L pinned X,
+    U local Z; milestones; logging; risks).
+  - Next: Milestone 2 — menu on Z + X-only SQLite leaderboard.
+
 END OF SYNC
 
