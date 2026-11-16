@@ -72,6 +72,7 @@ FYP/
 ├── run_x.cmd                    # Cloud X launcher (activates venv, sets FYP_* vars)
 ├── run_y.cmd                    # Middle Y launcher (<Cloud X address>)
 ├── run_z.cmd                    # End Z launcher (<Middle Y address>)
+├── run_local.cmd                # single-PC demo: X, Y and Z on 127.0.0.1
 ├── venv/                        # local virtual environment (git-ignored)
 ├── x_server.py                  # Cloud X — game engine + high-quality renderer
 ├── y_gateway.py                 # Middle Y — proxy, H.264 fallback renderer, RTT monitor, dashboard
@@ -328,7 +329,8 @@ tailnet address. See [Open the Dashboard](#open-the-dashboard) for all methods.
 
 ### Single-machine demo
 
-Start the three tiers in separate terminals as `.\run_x.cmd`, `.\run_y.cmd 127.0.0.1`,
+Easiest: run `.\run_local.cmd`, which opens X, Y and Z on `127.0.0.1`.
+Or start the three tiers manually in separate terminals as `.\run_x.cmd`, `.\run_y.cmd 127.0.0.1`,
 `.\run_z.cmd 127.0.0.1` — the defaults in `common/config.py` are all `127.0.0.1`, so this
 reproduces the original one-host setup. Then open the dashboard with `?ip=127.0.0.1`.
 
