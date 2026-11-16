@@ -96,6 +96,7 @@ async def main():
         dec_src = None
         need_key = True                          # wait for an IDR before decoding P-frames
         last_tick = None
+        fps_count, fps_t0, fps_value = 0, None, None
         async for msg in ws:
             if isinstance(msg, str):
                 m = json.loads(msg)
@@ -153,6 +154,13 @@ async def main():
                 log.writerow([round(time.time(), 3), src, codec, tick, round(ms, 1),
                               round(st["rzy"], 1)])
             nframes += 1
+            fps_count += 1
+            now = time.monotonic()
+            if fps_t0 is None:
+                fps_t0 = now
+            elif now - fps_t0 >= 1.0:
+                fps_value = fps_count / (now - fps_t0)
+                fps_count, fps_t0 = 0, now
             if nframes % 30 == 0:
                 log_f.flush()
             # the overlay only needs refreshing a few times per second
@@ -166,6 +174,12 @@ async def main():
                 last_src, last_codec = src, codec
             screen.blit(shadow, (11, 11))
             screen.blit(overlay, (10, 10))
+            fps_label = "-- FPS" if fps_value is None else f"{fps_value:.0f} FPS"
+            fps_text = font.render(fps_label, True, col)
+            fps_shadow = font.render(fps_label, True, (0, 0, 0))
+            fps_x = screen.get_width() - fps_text.get_width() - 11
+            screen.blit(fps_shadow, (fps_x + 1, 11))
+            screen.blit(fps_text, (fps_x, 10))
             pygame.display.flip()
 
     async def idle(text):

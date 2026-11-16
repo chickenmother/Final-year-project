@@ -36,10 +36,10 @@ def _pair(name, default):
 
 
 TICK_RATE = 60          # game ticks per second (each tick = 4 original 240 FPS frames)
-# 1080p render + x264 conversion costs ~22 ms/frame on the reference X, so
-# stream every second tick (30 fps) by default. Set FYP_X_STREAM_EVERY=1 for
-# 60 fps on a faster machine or with a hardware encoder.
-X_STREAM_EVERY = max(1, int(os.environ.get("FYP_X_STREAM_EVERY", "2")))
+# 720p leaves enough budget for the full 60 fps render + encode path on the
+# reference X. Set FYP_X_STREAM_EVERY=2 to fall back to 30 fps if a machine
+# cannot keep up (for example, a slow CPU or a much larger FYP_X_SIZE).
+X_STREAM_EVERY = max(1, int(os.environ.get("FYP_X_STREAM_EVERY", "1")))
 Y_STREAM_EVERY = int(os.environ.get("FYP_Y_STREAM_EVERY", "2"))   # 2 -> 30 fps
 Y_FPS = max(1, TICK_RATE // Y_STREAM_EVERY)
 
@@ -58,8 +58,8 @@ X_ENCODER = os.environ.get("FYP_X_ENCODER", "libx264").lower()
 X_BITRATE = int(os.environ.get("FYP_X_BITRATE", "8000000"))
 X_GOP = int(os.environ.get("FYP_X_GOP", "30"))
 
-WIN_W, WIN_H = _pair("FYP_WIN_SIZE", "1920x1080")      # window on Z
-X_SIZE = _pair("FYP_X_SIZE", "1920x1080")              # cloud X capture size
+WIN_W, WIN_H = _pair("FYP_WIN_SIZE", "1280x720")      # window on Z
+X_SIZE = _pair("FYP_X_SIZE", "1280x720")              # cloud X capture size
 Y_SIZE = _pair("FYP_Y_SIZE", "960x540")                # edge Y capture size
 X_QUALITY = int(os.environ.get("FYP_X_QUALITY", "80"))
 Y_QUALITY = int(os.environ.get("FYP_Y_QUALITY", "55"))

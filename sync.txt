@@ -475,5 +475,22 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
     and compare log_x.csv encode_ms (expect ~2-4 ms) and log_y.csv
     mode/rtt.
 
+[2026-11-16 19:31 +09:00 | from X — 720p60 default + FPS counter]
+  - Defaults are now 1280x720 for the game world, X capture, and Z
+    window; Y fallback remains 960x540. 1080p is still available with
+    FYP_WIN_SIZE=1920x1080 and FYP_X_SIZE=1920x1080.
+  - X streams 60 fps by default again (FYP_X_STREAM_EVERY=1). 720p
+    render+encode: ~12.6 ms avg / ~14.2 ms p95 on X.
+  - z_client now draws a right-aligned "NN FPS" counter in the top
+    right corner during gameplay. It measures displayed frames per
+    second and uses the same green/orange X/Y colour as the status line.
+  - Headless local X->Y->Z run at 720p60: X encode_ms ~8.3 avg, Z
+    displayed 60.6 fps, e2e ~34 ms avg (15.6-81.9 ms) on localhost.
+  - For 1080p on this X use FYP_X_STREAM_EVERY=2 (30 fps); 60 fps at
+    1080p overloads Z and raises e2e.
+  - Verified: game-core tests pass, selftest hash still
+    30f043222e75fabf0ec80d2cd7edf6df, H.264 720p/960x540 round-trip
+    decodes correctly, menu/overlays render at 1280x720.
+
 END OF SYNC
 
