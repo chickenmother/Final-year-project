@@ -191,7 +191,7 @@ async def main():
 
     last_result, status = None, None
     auto = os.environ.get("FYP_SKIP_MENU") == "1"
-    auto_workload = os.environ.get("FYP_MENU_WORKLOAD", "heavy")
+    auto_workload = os.environ.get("FYP_MENU_WORKLOAD", "medium")
     pending_workload = None
     try:
         while running:

@@ -27,11 +27,11 @@ PROFILES = {
         particles_per_explosion=20, pathfinding_agents=0,
     ),
     "medium": WorkloadConfig(
-        name="medium", bots=5, obstacles=100, bullets_per_second=20.0,
+        name="medium", bots=5, obstacles=40, bullets_per_second=20.0,
         particles_per_explosion=50, pathfinding_agents=5,
     ),
     "heavy": WorkloadConfig(
-        name="heavy", bots=50, obstacles=1000, bullets_per_second=200.0,
+        name="heavy", bots=50, obstacles=500, bullets_per_second=200.0,
         particles_per_explosion=300, pathfinding_agents=50,
     ),
 }

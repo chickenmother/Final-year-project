@@ -239,8 +239,8 @@ Profiles:
 | Profile | Bots | Obstacles | Bullets | Particles |
 |---------|------|-----------|---------|-----------|
 | light | 0 | 8 | low | 0 |
-| medium | 5 | 100 | 20/s | 50 |
-| heavy | 50 | 1000 | 200/s | 300 |
+| medium | 5 | 40 | 20/s | 50 |
+| heavy | 50 | 500 | 200/s | 300 |
 
 The light profile preserves the current game as the control baseline.
 

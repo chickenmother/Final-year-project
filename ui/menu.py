@@ -17,7 +17,7 @@ class Menu:
         self.big = pygame.font.SysFont("consolas", 44, bold=True)
         self.small = pygame.font.SysFont("consolas", 16)
         self.clock = pygame.time.Clock()
-        self.workload = "heavy"
+        self.workload = "medium"
         self.quit = False
 
         w, h = screen.get_size()

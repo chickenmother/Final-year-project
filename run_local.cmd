@@ -10,10 +10,13 @@ if not exist "venv\Scripts\python.exe" (
 )
 
 echo Starting Cloud X, Middle Y and End Z on localhost...
+set FYP_HIGH_MS=120
+set FYP_LOW_MS=70
+set FYP_BAD_COUNT=5
 start "FYP Cloud X" cmd /k "%~dp0run_x.cmd"
-timeout /t 2 /nobreak >nul
+timeout /t 4 /nobreak >nul
 start "FYP Middle Y" cmd /k "%~dp0run_y.cmd 127.0.0.1"
-timeout /t 2 /nobreak >nul
+timeout /t 3 /nobreak >nul
 start "FYP End Z" cmd /k "%~dp0run_z.cmd 127.0.0.1"
 
 echo.

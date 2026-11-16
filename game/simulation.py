@@ -59,7 +59,7 @@ class Game:
 
         # Small counts fit with random placement. Large counts use a jittered
         # grid so the heavy profile can actually reach its target density.
-        if limit <= 20:
+        if limit <= 60:
             attempts = 0
             while len(self.obstacles) < limit and attempts < limit * 30 + 50:
                 attempts += 1

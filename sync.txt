@@ -436,5 +436,19 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
   - Second remaining performance item: ensure 60 fps budget after heavy
     render/encode; measure again before changing frame rate/quality.
 
+[2026-11-16 19:06 +09:00 | from Y — lighter medium profile + local startup]
+  - medium obstacles reduced 100 -> 40, placed randomly/scattered
+    (random placement now used up to 60 obstacles).
+  - heavy obstacles reduced 1000 -> 500 (still 50 bots).
+  - menu default workload is now medium; auto default medium.
+  - run_local.cmd waits 4 s after X, 3 s after Y, and sets
+    FYP_HIGH_MS=120 / FYP_LOW_MS=70 / FYP_BAD_COUNT=5 for the local
+    demo to avoid an immediate false Y fallback.
+  - Measured X render+H.264 at 960x540: medium ~11.9 ms avg (p95 13.3),
+    heavy ~12.6 ms (p95 14.7).
+  - Remaining observation: if Y still falls back immediately on the PC,
+    inspect log_y.csv rtt/mode and X stdout; likely X was not ready or
+    the local threshold is still too tight.
+
 END OF SYNC
 
