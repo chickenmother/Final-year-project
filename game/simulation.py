@@ -27,6 +27,7 @@ class Game:
         self.grid = SpatialGrid()
         self.tick = 0
         self.score = 0
+        self.deaths = 0
         self.wave = 1
         self.game_over = False
         self.prev_space = False
@@ -41,6 +42,7 @@ class Game:
         self.bots = []
         self.obstacles = []
         self.score = 0
+        self.deaths = 0
         self.wave = 1
         self.tick = 0
         self.game_over = False
@@ -262,6 +264,8 @@ class Game:
 
         if self.player.hp <= 0:
             self.player.hp = 0
+            if not self.game_over:
+                self.deaths += 1
             self.game_over = True
             self._explode(self.player.rect.centerx, self.player.rect.centery,
                           (255, 120, 80))
@@ -275,7 +279,7 @@ class Game:
         v, internal, g = self.rng.getstate()
         return dict(
             workload=self.workload.name,
-            tick=self.tick, score=self.score, wave=self.wave,
+            tick=self.tick, score=self.score, deaths=self.deaths, wave=self.wave,
             game_over=self.game_over, prev_space=self.prev_space,
             player_hit_cooldown=self.player_hit_cooldown,
             player=[self.player.rect.x, self.player.rect.y, self.player.hp,
@@ -292,6 +296,7 @@ class Game:
     def restore(self, state):
         self.tick = state["tick"]
         self.score = state["score"]
+        self.deaths = state.get("deaths", 0)
         self.wave = state["wave"]
         self.game_over = state["game_over"]
         self.prev_space = state["prev_space"]
