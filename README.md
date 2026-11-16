@@ -45,7 +45,7 @@ Input travels **up** the chain (Z → Y → X) and video travels **down** (X →
 
 Middle Y separates the **data path** from the **monitoring path** so the game never waits on measurement:
 
-- **Data path (`tick_loop`):** Y advances its own copy of the game every tick (60 Hz), forwards the input to Cloud X with a sequence number, and — only while in `Y` mode — encodes and broadcasts a 960×540 frame every second tick (30 fps; H.264 at 2 Mbps, JPEG fallback).
+- **Data path (`tick_loop`):** while a game is active, Y advances its own copy of the game every tick (60 Hz), forwards the input to Cloud X with a sequence number, and — only while in `Y` mode — encodes and broadcasts a 960×540 frame every second tick (30 fps; H.264 at 2 Mbps, JPEG fallback). While Z is on the menu, neither tier steps the simulation or sends game frames.
 - **Monitoring path (`ping_loop`):** every 0.2 s Y sends `{"t":"ping"}` to X; X replies with a `pong` carrying the original timestamp, giving the Y↔X RTT. The value is smoothed with an EWMA (`0.7 × old + 0.3 × new`).
 - **State machine (`update_mode`):** X → Y after **3 consecutive** RTT samples above **80 ms**; Y → X only after RTT has stayed below **50 ms** for **3 s**. The asymmetric thresholds and the recovery timer provide hysteresis, so the mode does not flap around a single threshold.
 - **Frame fan-out (`broadcast` / `z_sender`):** each Z has its own queue. JPEG overwrites older unsent frames (newest wins), while H.264 packets are queued in order and the queue is cleared only on a keyframe, so a P-frame is never sent without the reference it needs.

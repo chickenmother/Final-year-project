@@ -519,5 +519,20 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
     under logs/, no root-level log_*.csv or *.out/*.err remain, 8 tests
     pass, selftest hash 30f043222e75fabf0ec80d2cd7edf6df.
 
+[2026-11-16 19:52 +09:00 | from X — first-game startup flood fix]
+  - Root cause of the first-game lag: X and Y were stepping their default
+    game and streaming 720p JPEG at 60 fps while Z was still on the menu.
+    The previous log had 457 JPEG frames over 7.6 s before the first H.264
+    frame, loading the CPU/socket queues before play began.
+  - X now has a playing flag: it ignores "in" messages until "start" (or a
+    restored snapshot) and stops on game over.
+  - Y now has state["playing"]; tick_loop idles on the menu, starts on
+    Z's start message, and stops on game over or when the last Z leaves.
+  - Verified: menu-only session produced 0 X frames and 0 Z frames
+    (Y still logs pings); auto-start session started with H.264 at tick 1
+    (no JPEG), 270 H.264 frames in 6 s, first keyframe encode 24.6 ms,
+    then ~7-8 ms/frame, first Z e2e 75.8 ms settling to ~30 ms.
+  - 8 game-core tests pass; py_compile passes.
+
 END OF SYNC
 

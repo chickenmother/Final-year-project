@@ -17,7 +17,7 @@ except ImportError:                      # PyAV not installed: JPEG fallback
 TICK = 1 / C.TICK_RATE
 game = Game()
 state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
-         "e2e": 0.0, "tick": 0, "linked": False}
+         "e2e": 0.0, "tick": 0, "linked": False, "playing": False}
 inp = {"keys": "", "seq": 0, "latch": False}
 zs = {}                # Z connection -> frame queue + capability slot
 last_fwd, bad, good_since = 0, 0, None
@@ -144,6 +144,7 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
         elif m["t"] == "need_snap":
             up.put(json.dumps({"t": "snap", "s": game.snapshot()}))
         elif m["t"] == "game_over":
+            state["playing"] = False
             broadcast(json.dumps(m), keyframe=True)
             print(f"game over: score={m.get('score')}")
 
@@ -153,7 +154,7 @@ async def tick_loop():
     nxt = time.monotonic()
     while True:
         nxt += TICK
-        if paused:
+        if not state["playing"] or paused:
             await asyncio.sleep(TICK)
             nxt = time.monotonic()
             continue
@@ -239,7 +240,7 @@ async def z_handler(ws):
                     y_encoder.force_keyframe()
                 for slot in zs.values():
                     slot["queue"].clear()
-                state.update(tick=0, mode="X", e2e=0.0, rtt_zy=0.0, lag=0)
+                state.update(tick=0, mode="X", e2e=0.0, rtt_zy=0.0, lag=0, playing=True)
                 inp.update(keys="", seq=0, latch=False)
                 last_fwd, bad, good_since = 0, 0, None
                 up.put(json.dumps({"t": "start", "workload": workload, "seed": seed}))
@@ -261,6 +262,7 @@ async def z_handler(ws):
         zs.pop(ws, None)
         if not zs:
             inp["keys"] = ""           # do not keep steering after the player disconnects
+            state["playing"] = False
         send_caps()
 
 

@@ -36,7 +36,7 @@ async def handler(ws):
     # survives a Y or X restart without a visible jump.
     resync, need_at = True, time.monotonic()
     z_h264, force_key = False, True
-    paused = False
+    paused, playing = False, False
     print(f"Y connected from {ws.remote_address}")
     lock = asyncio.Lock()
 
@@ -84,7 +84,7 @@ async def handler(ws):
                 await send(json.dumps({"t": "pong", "ts": m["ts"]}))
             elif t == "snap":
                 game.restore(m["s"])
-                resync = False
+                resync, playing = False, True
                 print(f"resynced at tick {game.tick}")
             elif t == "caps":
                 # Y reports whether every connected Z can decode H.264.
@@ -104,17 +104,19 @@ async def handler(ws):
             elif t == "start":
                 game = Game(m.get("workload", "light"), seed=int(m.get("seed", 12345)))
                 resync, game_over_sent = False, False
-                paused = False
+                paused, playing = False, True
                 force_key = True
                 out["queue"].clear()
                 out["jpeg"] = None
                 print(f"[{time.strftime('%X')}] game start: "
                       f"workload={game.workload.name} seed={game.seed}")
             elif t == "in":
+                if not playing:
+                    continue
                 if not paused and m["tick"] == game.tick + 1:
                     game.step(m["keys"])
                     if game.game_over and not game_over_sent:
-                        game_over_sent = True
+                        game_over_sent, playing = True, False
                         await send(json.dumps({"t": "game_over",
                                                "score": game.score,
                                                "deaths": game.deaths}))
