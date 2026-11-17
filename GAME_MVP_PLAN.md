@@ -119,6 +119,7 @@ game/
   render.py            world/HP/particle rendering
   effects.py           particle pool and explosion bursts
   workload.py          WorkloadConfig and light/medium/heavy profiles
+  settings.py          JSON gameplay tunables + validation
 
 tasks/
   __init__.py
@@ -129,6 +130,7 @@ tasks/
 ui/
   __init__.py
   menu.py              Pygame menu state machine on Z
+  config_menu.py       visual game_config.json editor on Z
   widgets.py           buttons/labels/panel helpers
   leaderboard_view.py  leaderboard screen
 

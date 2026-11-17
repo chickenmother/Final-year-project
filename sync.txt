@@ -534,5 +534,23 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
     then ~7-8 ms/frame, first Z e2e 75.8 ms settling to ~30 ms.
   - 8 game-core tests pass; py_compile passes.
 
+[2026-11-17 11:49 +09:00 | from X — gameplay config + visual editor]
+  - Added game_config.json (root) and game/settings.py. The file controls
+    player/bot/obstacle HP, speeds, damage, cooldowns, sizes, spawn ranges,
+    world size, particle cap and the three workload profiles.
+  - Added ui/config_menu.py + a GAME CONFIG button/C shortcut on Z. The
+    screen lists every value by section, supports Up/Down + Left/Right
+    editing (Shift x5), profile tabs 1/2/3, S save, R reload, D default.
+    Changes are saved atomically and apply on the next start.
+  - Z puts the config in every start message (initial, pause retry and
+    game-over retry). Y validates it, runs the same tuning, forwards it to X,
+    and includes it in resync snapshots. Defaults preserve the old game.
+  - Dashboard now shows live HP, tick, bots, obstacles, bullets, score,
+    deaths and active profile. game/__init__.py loads Game lazily so Z can
+    import settings without forcing the headless SDL driver.
+  - Verified custom config end-to-end (HP=77, medium bots=2, obstacles=4
+    reached both Y and X). 14 unit tests pass; legacy selftest hash is still
+    30f043222e75fabf0ec80d2cd7edf6df.
+
 END OF SYNC
 

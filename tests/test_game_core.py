@@ -1,8 +1,18 @@
 """Milestone 1 tests for the task-oriented game core."""
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from game.entities import Bot, Bullet
+from game.settings import (
+    DEFAULT_CONFIG,
+    all_fields,
+    load_config,
+    normalize_config,
+    profile_from_config,
+    save_config,
+)
 from game.simulation import Game
 from game.workload import get_profile
 
@@ -74,6 +84,20 @@ class GameCoreTests(unittest.TestCase):
         self.assertTrue(game.game_over)
         self.assertEqual(game.player.hp, 0)
 
+    def test_custom_config_snapshot_restore(self):
+        cfg = normalize_config({
+            "player": {"max_hp": 77},
+            "profiles": {"medium": {"bots": 2, "obstacles": 4}},
+        })
+        game = Game("medium", seed=11, config=cfg)
+        for keys in ("d", "a", " ", "s") * 10:
+            game.step(keys)
+        state = json.loads(json.dumps(game.snapshot()))
+        clone = Game("light", seed=999, config=cfg)
+        clone.restore(state)
+        self.assertEqual(clone.digest(), game.digest())
+        self.assertEqual(clone.player.max_hp, 77)
+
     def test_render_image_and_jpeg(self):
         game = Game("light", seed=7)
         image = game.render_image((480, 270), smooth=False)
@@ -81,6 +105,53 @@ class GameCoreTests(unittest.TestCase):
         jpg = game.render((480, 270), 40, smooth=False)
         self.assertGreater(len(jpg), 100)
         self.assertEqual(jpg[:2], b"\xff\xd8")
+
+
+class ConfigTests(unittest.TestCase):
+    def test_defaults_are_complete_and_editable(self):
+        cfg = normalize_config(None)
+        self.assertIn("player", cfg)
+        self.assertIn("medium", cfg["profiles"])
+        self.assertGreater(len(all_fields("medium")), 20)
+        self.assertEqual(normalize_config(DEFAULT_CONFIG)["profiles"]["heavy"]
+                         ["bullets_per_second"], 200.0)
+
+    def test_custom_values_reach_game(self):
+        cfg = normalize_config({
+            "world": {"width": 960, "height": 540},
+            "player": {"max_hp": 42, "speed": 11.0},
+            "bot": {"max_hp": 77, "speed": 3.5},
+            "profiles": {"light": {"bots": 2, "obstacles": 3}},
+        })
+        game = Game("light", seed=7, config=cfg)
+        self.assertEqual(game.player.max_hp, 42)
+        self.assertEqual(game.player.hp, 42)
+        self.assertEqual(game.player.speed, 11.0)
+        self.assertEqual(game.workload.width, 960)
+        self.assertEqual(game.workload.height, 540)
+        self.assertEqual(len(game.bots), 2)
+        self.assertEqual(len(game.obstacles), 3)
+        self.assertEqual(game.bots[0].max_hp, 77)
+
+    def test_profile_from_config(self):
+        cfg = normalize_config({"profiles": {"medium": {"bots": 12, "obstacles": 33}}})
+        profile = profile_from_config(cfg, "medium")
+        self.assertEqual(profile.bots, 12)
+        self.assertEqual(profile.obstacles, 33)
+
+    def test_save_load_round_trip(self):
+        cfg = normalize_config({"player": {"max_hp": 73}})
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "game_config.json"
+            save_config(cfg, path)
+            loaded = load_config(path)
+        self.assertEqual(loaded["player"]["max_hp"], 73)
+        self.assertEqual(loaded["profiles"]["medium"]["bots"], 5)
+
+    def test_values_are_clamped(self):
+        cfg = normalize_config({"player": {"max_hp": 99999, "speed": -4}})
+        self.assertEqual(cfg["player"]["max_hp"], 1000)
+        self.assertEqual(cfg["player"]["speed"], 1)
 
 
 if __name__ == "__main__":

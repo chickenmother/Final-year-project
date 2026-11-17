@@ -142,7 +142,8 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
             state["rtt"] = 0.7 * state["rtt"] + 0.3 * rtt if state["rtt"] else rtt
             update_mode()
         elif m["t"] == "need_snap":
-            up.put(json.dumps({"t": "snap", "s": game.snapshot()}))
+            up.put(json.dumps({"t": "snap", "s": game.snapshot(),
+                               "config": game.config}))
         elif m["t"] == "game_over":
             state["playing"] = False
             broadcast(json.dumps(m), keyframe=True)
@@ -165,6 +166,17 @@ async def tick_loop():
         seq = inp["seq"]
         game.step(keys)                # Y ALWAYS runs the game (same code as X) -> instant fallback
         state["tick"] = game.tick
+        state["game"] = {
+            "hp": max(0, game.player.hp),
+            "max_hp": game.player.max_hp,
+            "bots": len(game.bots),
+            "obstacles": len(game.obstacles),
+            "bullets": len(game.bullets),
+            "score": game.score,
+            "deaths": game.deaths,
+            "tick": game.tick,
+            "workload": game.workload.name,
+        }
         up.put(json.dumps({"t": "in", "tick": game.tick, "keys": keys, "seq": seq}))
         if state["mode"] == "Y" and game.tick % C.Y_STREAM_EVERY == 0:
             if y_encoder is not None and all_h264():
@@ -233,7 +245,12 @@ async def z_handler(ws):
             if m.get("t") == "start":
                 workload = m.get("workload", "light")
                 seed = int(m.get("seed", 12345))
-                game = Game(workload, seed=seed)
+                config = m.get("config")
+                try:
+                    game = Game(workload, seed=seed, config=config)
+                except Exception as exc:
+                    print(f"invalid game config ({exc}); using defaults")
+                    game = Game(workload, seed=seed)
                 paused = False
                 state["paused"] = False
                 if y_encoder is not None:
@@ -243,9 +260,12 @@ async def z_handler(ws):
                 state.update(tick=0, mode="X", e2e=0.0, rtt_zy=0.0, lag=0, playing=True)
                 inp.update(keys="", seq=0, latch=False)
                 last_fwd, bad, good_since = 0, 0, None
-                up.put(json.dumps({"t": "start", "workload": workload, "seed": seed}))
+                up.put(json.dumps({"t": "start", "workload": workload, "seed": seed,
+                                   "config": game.config}))
                 print(f"[{time.strftime('%X')}] game start requested: "
-                      f"workload={workload} seed={seed}")
+                      f"workload={workload} seed={seed} "
+                      f"hp={game.player.max_hp} bots={game.workload.bots} "
+                      f"obstacles={game.workload.obstacles}")
                 continue
             inp["keys"], inp["seq"] = m["keys"], m["n"]
             state["e2e"] = m.get("e2e", 0.0)

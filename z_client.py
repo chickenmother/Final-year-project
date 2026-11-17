@@ -5,6 +5,8 @@ import pygame
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.client import connect
 from common import config as C
+from game.settings import load_config, normalize_config
+from ui.config_menu import ConfigMenu
 from ui.menu import Menu
 from ui.overlay import GameOverMenu, PauseMenu
 try:
@@ -22,7 +24,9 @@ async def main():
     screen = pygame.display.set_mode((C.WIN_W, C.WIN_H))
     pygame.display.set_caption("Z - end node (WASD + SPACE)")
     font = pygame.font.SysFont("consolas", max(18, int(C.WIN_H / 36)))
-    menu = Menu(screen, font)
+    game_config = load_config()
+    menu = Menu(screen, font, game_config)
+    config_menu = ConfigMenu(screen, font)
     pause_menu = PauseMenu(screen, font)
     gameover_menu = GameOverMenu(screen, font)
     os.makedirs("logs", exist_ok=True)
@@ -63,7 +67,8 @@ async def main():
                     st.update(e2e=0.0, rzy=0.0, want_idr=False,
                               game_over=False, score=0, deaths=0)
                     await ws.send(json.dumps({"t": "start", "mode": "vs_bot",
-                                              "workload": st["workload"], "seed": 12345}))
+                                              "workload": st["workload"], "seed": 12345,
+                                              "config": game_config}))
                     continue
                 if choice in ("menu", "exit") or choice is None:
                     if choice == "exit":
@@ -206,7 +211,7 @@ async def main():
 
     last_result, status = None, None
     auto = os.environ.get("FYP_SKIP_MENU") == "1"
-    auto_workload = os.environ.get("FYP_MENU_WORKLOAD", "medium")
+    auto_workload = os.environ.get("FYP_MENU_WORKLOAD", game_config["default_workload"])
     pending_workload = None
     try:
         while running:
@@ -218,10 +223,19 @@ async def main():
                 auto = False
             else:
                 choice = menu.run(last_result, status)
+            if choice and choice.get("action") == "config":
+                updated = config_menu.run(game_config)
+                if config_menu.quit:
+                    break
+                game_config = normalize_config(updated)
+                menu = Menu(screen, font, game_config)
+                status = None
+                continue
             if not choice or choice.get("action") != "start":
                 break
 
-            workload = choice.get("workload", "heavy")
+            game_config = normalize_config(choice.get("config") or game_config)
+            workload = choice.get("workload", game_config["default_workload"])
             st.update(e2e=0.0, rzy=0.0, want_idr=False, game_over=False,
                       score=0, deaths=0, workload=workload,
                       pause_requested=False, return_to_menu=False)
@@ -234,7 +248,8 @@ async def main():
                     print(f"connected to Y at {C.Y_URI}")
                     await ws.send(json.dumps({"t": "hello", "h264": H264Decoder is not None}))
                     await ws.send(json.dumps({"t": "start", "mode": "vs_bot",
-                                              "workload": workload, "seed": 12345}))
+                                              "workload": workload, "seed": 12345,
+                                              "config": game_config}))
                     await session(ws)
             except (OSError, ConnectionClosed) as e:
                 print(f"Y link down ({e!r})")

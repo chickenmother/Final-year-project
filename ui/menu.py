@@ -6,12 +6,11 @@ milestones.
 """
 import pygame
 
-WORKLOADS = ("light", "medium", "heavy")
-WORKLOAD_BOTS = {"light": 0, "medium": 5, "heavy": 50}
+from game.settings import normalize_config, profiles_from_config
 
 
 class Menu:
-    def __init__(self, screen, font=None):
+    def __init__(self, screen, font=None, config=None):
         self.screen = screen
         w, h = screen.get_size()
         self.sx, self.sy = w / 960.0, h / 540.0
@@ -19,22 +18,28 @@ class Menu:
         self.big = pygame.font.SysFont("consolas", max(32, int(44 * self.sy)), bold=True)
         self.small = pygame.font.SysFont("consolas", max(14, int(16 * self.sy)))
         self.clock = pygame.time.Clock()
-        self.workload = "medium"
+        self.config = normalize_config(config)
+        self.profiles = profiles_from_config(self.config)
+        self.workloads = tuple(self.profiles)
+        self.workload = self.config["default_workload"]
         self.quit = False
 
-        bw, bh = int(340 * self.sx), int(52 * self.sy)
+        bw, bh = int(340 * self.sx), int(42 * self.sy)
         x = w // 2 - bw // 2
+        step = int(46 * self.sy)
+        top = int(208 * self.sy)
         self.buttons = {
-            "vs_bot": pygame.Rect(x, int(210 * self.sy), bw, bh),
-            "leaderboard": pygame.Rect(x, int(274 * self.sy), bw, bh),
-            "multiplayer": pygame.Rect(x, int(338 * self.sy), bw, bh),
-            "exit": pygame.Rect(x, int(402 * self.sy), bw, bh),
+            "vs_bot": pygame.Rect(x, top, bw, bh),
+            "leaderboard": pygame.Rect(x, top + step, bw, bh),
+            "multiplayer": pygame.Rect(x, top + step * 2, bw, bh),
+            "config": pygame.Rect(x, top + step * 3, bw, bh),
+            "exit": pygame.Rect(x, top + step * 4, bw, bh),
         }
-        cw, ch = int(130 * self.sx), int(34 * self.sy)
+        cw, ch = int(130 * self.sx), int(30 * self.sy)
         self.chips = {
             name: pygame.Rect(w // 2 - int(210 * self.sx) + i * int(145 * self.sx),
-                              int(480 * self.sy), cw, ch)
-            for i, name in enumerate(WORKLOADS)
+                              int(478 * self.sy), cw, ch)
+            for i, name in enumerate(self.workloads)
         }
 
     def _draw_button(self, rect, label, enabled=True, hover=False):
@@ -62,23 +67,25 @@ class Menu:
                           hover=self.buttons["vs_bot"].collidepoint(mouse))
         self._draw_button(self.buttons["leaderboard"], "LEADERBOARD  (later)", False)
         self._draw_button(self.buttons["multiplayer"], "MULTIPLAYER  (later)", False)
+        self._draw_button(self.buttons["config"], "GAME CONFIG  (C)",
+                          hover=self.buttons["config"].collidepoint(mouse))
         self._draw_button(self.buttons["exit"], "EXIT",
                           hover=self.buttons["exit"].collidepoint(mouse))
 
+        selected = self.small.render(
+            f"selected: {self.workload} ({self.profiles[self.workload].bots} bots)",
+            True, (200, 220, 235))
+        self.screen.blit(selected, (w // 2 - int(340 * self.sx), int(444 * self.sy)))
         label = self.small.render("workload (1/2/3):", True, (180, 200, 220))
-        self.screen.blit(label, (w // 2 - int(340 * self.sx), int(486 * self.sy)))
+        self.screen.blit(label, (w // 2 - int(340 * self.sx), int(460 * self.sy)))
         for name, rect in self.chips.items():
             active = name == self.workload
             bg = (70, 130, 100) if active else (40, 50, 64)
             pygame.draw.rect(self.screen, bg, rect, border_radius=6)
             pygame.draw.rect(self.screen, (100, 150, 180), rect, 2, border_radius=6)
-            label = f"{name.upper()} ({WORKLOAD_BOTS[name]} bots)"
+            label = f"{name.upper()} ({self.profiles[name].bots} bots)"
             text = self.small.render(label, True, (240, 245, 250))
             self.screen.blit(text, text.get_rect(center=rect.center))
-        selected = self.small.render(
-            f"selected: {self.workload} ({WORKLOAD_BOTS[self.workload]} bots)",
-            True, (200, 220, 235))
-        self.screen.blit(selected, (w // 2 - int(340 * self.sx), int(455 * self.sy)))
 
         if last_result is not None:
             msg = self.small.render(f"last score: {last_result}", True, (150, 230, 170))
@@ -88,7 +95,7 @@ class Menu:
             self.screen.blit(msg, msg.get_rect(center=(w // 2, int(185 * self.sy))))
 
         hint = self.small.render(
-            "Enter/Space start   Esc exit   WASD + Space in game",
+            "Enter/Space start   C config   Esc exit   WASD + Space in game",
             True, (110, 130, 150))
         self.screen.blit(hint, hint.get_rect(center=(w // 2, h - int(16 * self.sy))))
         pygame.display.flip()
@@ -105,9 +112,14 @@ class Menu:
                         self.quit = True
                         return None
                     if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
-                        return {"action": "start", "workload": self.workload}
+                        return {"action": "start", "workload": self.workload,
+                                "config": self.config}
+                    if event.key == pygame.K_c:
+                        return {"action": "config"}
                     if event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
-                        self.workload = WORKLOADS[event.key - pygame.K_1]
+                        index = event.key - pygame.K_1
+                        if index < len(self.workloads):
+                            self.workload = self.workloads[index]
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     for name, rect in self.buttons.items():
                         if not rect.collidepoint(event.pos):
@@ -115,8 +127,11 @@ class Menu:
                         if name == "exit":
                             self.quit = True
                             return None
+                        if name == "config":
+                            return {"action": "config"}
                         if name == "vs_bot":
-                            return {"action": "start", "workload": self.workload}
+                            return {"action": "start", "workload": self.workload,
+                                    "config": self.config}
                     for name, rect in self.chips.items():
                         if rect.collidepoint(event.pos):
                             self.workload = name

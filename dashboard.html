@@ -5,6 +5,7 @@
 <h2>Active node: <span id="mode" style="padding:2px 12px;border-radius:6px">?</span></h2>
 <div>RTT X&harr;Y: <b id="rtt">-</b> ms &nbsp;|&nbsp; X lag: <b id="lag">-</b> ticks &nbsp;|&nbsp; input&rarr;display (Z): <b id="e2e">-</b> ms</div>
 <div>RTT Z&harr;Y: <b id="rzy">-</b> ms &nbsp;|&nbsp; Cloud X link: <b id="link">-</b> &nbsp;|&nbsp; dashboard: <b id="dash">connecting</b></div>
+<div>Game: HP <b id="hp">-</b>/<span id="maxhp">-</span> &nbsp;|&nbsp; tick: <b id="tick">-</b> &nbsp;|&nbsp; bots: <b id="bots">-</b> &nbsp;|&nbsp; obstacles: <b id="obstacles">-</b> &nbsp;|&nbsp; bullets: <b id="bullets">-</b> &nbsp;|&nbsp; score: <b id="score">-</b> &nbsp;|&nbsp; deaths: <b id="deaths">-</b> &nbsp;|&nbsp; profile: <b id="profile">-</b></div>
 <br>
 <div>Injected X&harr;Y latency (RTT):
   <input type="range" min="0" max="400" value="0" id="slider" style="width:360px">
@@ -35,6 +36,18 @@
       $("rzy").textContent = (s.rtt_zy || 0).toFixed(0);
       $("link").textContent = s.linked ? "up" : "DOWN";
       $("link").style.color = s.linked ? "#2e7d32" : "#c62828";
+      const g = s.game;
+      if (g) {
+        $("hp").textContent = g.hp;
+        $("maxhp").textContent = g.max_hp;
+        $("tick").textContent = g.tick;
+        $("bots").textContent = g.bots;
+        $("obstacles").textContent = g.obstacles;
+        $("bullets").textContent = g.bullets;
+        $("score").textContent = g.score;
+        $("deaths").textContent = g.deaths;
+        $("profile").textContent = g.workload;
+      }
     };
     ws.onclose = () => {
       $("dash").textContent = "disconnected - retrying";

@@ -83,6 +83,10 @@ async def handler(ws):
             if t == "ping":
                 await send(json.dumps({"t": "pong", "ts": m["ts"]}))
             elif t == "snap":
+                config = m.get("config")
+                if config:
+                    game = Game(m["s"].get("workload", "light"),
+                                seed=game.seed, config=config)
                 game.restore(m["s"])
                 resync, playing = False, True
                 print(f"resynced at tick {game.tick}")
@@ -102,14 +106,23 @@ async def handler(ws):
                 paused = False
                 print("game resumed")
             elif t == "start":
-                game = Game(m.get("workload", "light"), seed=int(m.get("seed", 12345)))
+                try:
+                    game = Game(m.get("workload", "light"),
+                                seed=int(m.get("seed", 12345)),
+                                config=m.get("config"))
+                except Exception as exc:
+                    print(f"invalid game config ({exc}); using defaults")
+                    game = Game(m.get("workload", "light"),
+                                seed=int(m.get("seed", 12345)))
                 resync, game_over_sent = False, False
                 paused, playing = False, True
                 force_key = True
                 out["queue"].clear()
                 out["jpeg"] = None
                 print(f"[{time.strftime('%X')}] game start: "
-                      f"workload={game.workload.name} seed={game.seed}")
+                      f"workload={game.workload.name} seed={game.seed} "
+                      f"hp={game.player.max_hp} bots={game.workload.bots} "
+                      f"obstacles={game.workload.obstacles}")
             elif t == "in":
                 if not playing:
                     continue

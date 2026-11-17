@@ -5,24 +5,24 @@ import pygame
 class Player:
     __slots__ = ("rect", "hp", "max_hp", "cooldown", "speed", "hit_cooldown")
 
-    def __init__(self, x, y, w=48, h=48):
+    def __init__(self, x, y, w=48, h=48, max_hp=100, speed=7.0):
         self.rect = pygame.Rect(x, y, w, h)
-        self.max_hp = 100
+        self.max_hp = int(max_hp)
         self.hp = self.max_hp
         self.cooldown = 0.0
-        self.speed = 7.0          # pixels per tick
+        self.speed = float(speed)   # pixels per tick
         self.hit_cooldown = 0.0
 
 
 class Bot:
     __slots__ = ("rect", "hp", "max_hp", "cooldown", "speed", "fire_cooldown")
 
-    def __init__(self, x, y, w=44, h=44, speed=2.2):
+    def __init__(self, x, y, w=44, h=44, speed=2.2, max_hp=50):
         self.rect = pygame.Rect(x, y, w, h)
-        self.max_hp = 50
+        self.max_hp = int(max_hp)
         self.hp = self.max_hp
         self.cooldown = 0.0
-        self.speed = speed
+        self.speed = float(speed)
         # time until the next shot; seeded by the simulation RNG
         self.fire_cooldown = 0.8
 

@@ -15,15 +15,20 @@ from . import render as render_mod
 from .effects import ParticlePool
 from .entities import Bot, Bullet, Obstacle, Player
 from .hitreg import SpatialGrid, apply_damage, push_out
-from .workload import WorkloadConfig, get_profile
+from .settings import normalize_config, profile_from_config, tuning_from_config
+from .workload import WorkloadConfig
 
 
 class Game:
-    def __init__(self, workload="light", seed=12345):
-        self.workload = workload if isinstance(workload, WorkloadConfig) else get_profile(workload)
+    def __init__(self, workload="light", seed=12345, config=None):
+        self.config = normalize_config(config)
+        self.workload = (workload if isinstance(workload, WorkloadConfig)
+                         else profile_from_config(self.config, workload))
+        self.tuning = tuning_from_config(self.config)
         self.seed = int(seed)
         self.rng = random.Random(self.seed)
-        self.effects = ParticlePool(seed=self.seed + 1)
+        self.effects = ParticlePool(max_particles=self.tuning.max_particles,
+                                    seed=self.seed + 1)
         self.grid = SpatialGrid()
         self.tick = 0
         self.score = 0
@@ -37,7 +42,11 @@ class Game:
     # ---------------- setup ----------------
     def reset(self):
         w, h = self.workload.width, self.workload.height
-        self.player = Player(w // 2 - 24, h // 2 - 24)
+        size = self.tuning.player.size
+        self.player = Player(w // 2 - size // 2, h // 2 - size // 2,
+                             w=size, h=size,
+                             max_hp=self.tuning.player.max_hp,
+                             speed=self.tuning.player.speed)
         self.bullets = []
         self.bots = []
         self.obstacles = []
@@ -59,11 +68,13 @@ class Game:
 
         # Small counts fit with random placement. Large counts use a jittered
         # grid so the heavy profile can actually reach its target density.
+        tune = self.tuning.obstacle
         if limit <= 60:
             attempts = 0
             while len(self.obstacles) < limit and attempts < limit * 30 + 50:
                 attempts += 1
-                size = self.rng.randrange(30, 80)
+                size = self.rng.randrange(tune.size_min,
+                                         max(tune.size_min + 1, tune.size_max))
                 rect = pygame.Rect(
                     self.rng.randrange(0, max(1, w - size)),
                     self.rng.randrange(0, max(1, h - size)),
@@ -83,7 +94,10 @@ class Game:
         for i in range(limit):
             cx = (i % cols + 0.5) * cell_w + (self.rng.random() - 0.5) * cell_w * 0.5
             cy = (i // cols + 0.5) * cell_h + (self.rng.random() - 0.5) * cell_h * 0.5
-            size = self.rng.randrange(18, max(19, min(70, max_size)))
+            size = self.rng.randrange(
+                tune.large_size_min,
+                max(tune.large_size_min + 1, min(tune.large_size_max, max_size)),
+            )
             rect = pygame.Rect(int(cx - size / 2), int(cy - size / 2), size, size)
             if rect.colliderect(self.player.rect.inflate(120, 120)):
                 continue
@@ -91,21 +105,25 @@ class Game:
 
     def _spawn_bots(self, count):
         w, h = self.workload.width, self.workload.height
+        tune = self.tuning.bot
         limit = max(0, int(count))
         attempts = 0
         while len(self.bots) < limit and attempts < limit * 40 + 50:
             attempts += 1
             rect = pygame.Rect(
-                self.rng.randrange(0, max(1, w - 44)),
-                self.rng.randrange(0, max(1, h - 44)),
-                44, 44,
+                self.rng.randrange(0, max(1, w - tune.size)),
+                self.rng.randrange(0, max(1, h - tune.size)),
+                tune.size, tune.size,
             )
-            if rect.colliderect(self.player.rect.inflate(260, 260)):
+            clearance = self.player.rect.inflate(tune.spawn_clearance, tune.spawn_clearance)
+            if rect.colliderect(clearance):
                 continue
             if any(rect.colliderect(b.rect) for b in self.bots):
                 continue
-            bot = Bot(rect.x, rect.y)
-            bot.fire_cooldown = 0.4 + self.rng.random() * 0.8
+            bot = Bot(rect.x, rect.y, w=tune.size, h=tune.size,
+                      speed=tune.speed, max_hp=tune.max_hp)
+            span = tune.initial_fire_max - tune.initial_fire_min
+            bot.fire_cooldown = tune.initial_fire_min + self.rng.random() * span
             self.bots.append(bot)
 
     # ---------------- helpers ----------------
@@ -127,21 +145,22 @@ class Game:
             "player",
             self.player.rect.centerx - 4,
             self.player.rect.top - 16,
-            0.0, -900.0, 20,
+            0.0, -self.tuning.player.bullet_velocity,
+            self.tuning.player.bullet_damage,
         )
 
     def _bot_shoot(self, bot):
         dx = self.player.rect.centerx - bot.rect.centerx
         dy = self.player.rect.centery - bot.rect.centery
         dist = math.hypot(dx, dy) or 1.0
-        speed = 700.0
+        speed = self.tuning.bot.bullet_velocity
         self._shoot(
             "bot",
             bot.rect.centerx - 4,
             bot.rect.centery - 8,
             speed * dx / dist,
             speed * dy / dist,
-            10,
+            self.tuning.bot.bullet_damage,
         )
 
     # ---------------- frame ----------------
@@ -182,13 +201,14 @@ class Game:
         return None
 
     def _update_bot(self, bot, dt):
+        tune = self.tuning.bot
         dx = self.player.rect.centerx - bot.rect.centerx
         dy = self.player.rect.centery - bot.rect.centery
         dist = math.hypot(dx, dy) or 1.0
-        if dist > 240:
+        if dist > tune.stop_range:
             bot.rect.x += int(bot.speed * dx / dist)
             bot.rect.y += int(bot.speed * dy / dist)
-        elif dist < 120:
+        elif dist < tune.retreat_range:
             bot.rect.x -= int(bot.speed * dx / dist)
             bot.rect.y -= int(bot.speed * dy / dist)
 
@@ -200,9 +220,10 @@ class Game:
         self._clamp(bot.rect)
 
         bot.fire_cooldown -= dt
-        if dist < 720 and bot.fire_cooldown <= 0.0:
+        if dist < tune.fire_range and bot.fire_cooldown <= 0.0:
             self._bot_shoot(bot)
-            bot.fire_cooldown = 0.6 + self.rng.random() * 0.8
+            span = tune.fire_cooldown_max - tune.fire_cooldown_min
+            bot.fire_cooldown = tune.fire_cooldown_min + self.rng.random() * span
 
     def step(self, keys):
         if self.game_over:
@@ -226,8 +247,8 @@ class Game:
                 self.player.rect.x += int(px)
                 self.player.rect.y += int(py)
                 if self.player_hit_cooldown <= 0.0:
-                    self.player.hp -= 5
-                    self.player_hit_cooldown = 0.4
+                    self.player.hp -= self.tuning.player.obstacle_damage
+                    self.player_hit_cooldown = self.tuning.player.obstacle_hit_cooldown
                 break
 
         space = " " in keys
@@ -256,8 +277,8 @@ class Game:
                 self.player.rect.x += int(px)
                 self.player.rect.y += int(py)
                 if self.player_hit_cooldown <= 0.0:
-                    self.player.hp -= 8
-                    self.player_hit_cooldown = 0.5
+                    self.player.hp -= self.tuning.player.bot_damage
+                    self.player_hit_cooldown = self.tuning.player.bot_hit_cooldown
                 break
 
         self.effects.update(dt)
@@ -296,7 +317,7 @@ class Game:
     def restore(self, state):
         name = state.get("workload")
         if name and name != self.workload.name:
-            self.workload = get_profile(name)
+            self.workload = profile_from_config(self.config, name)
         self.tick = state["tick"]
         self.score = state["score"]
         self.deaths = state.get("deaths", 0)
@@ -306,21 +327,28 @@ class Game:
         self.player_hit_cooldown = state["player_hit_cooldown"]
 
         p = state["player"]
-        self.player = Player(p[0], p[1])
+        player_tune = self.tuning.player
+        self.player = Player(p[0], p[1], w=player_tune.size, h=player_tune.size,
+                             max_hp=player_tune.max_hp, speed=player_tune.speed)
         self.player.hp = p[2]
         self.player.cooldown = p[3]
         self.player.hit_cooldown = p[4]
 
         self.bots = []
+        bot_tune = self.tuning.bot
         for x, y, hp, cooldown, fire_cooldown in state["bots"]:
-            bot = Bot(x, y)
+            bot = Bot(x, y, w=bot_tune.size, h=bot_tune.size,
+                      speed=bot_tune.speed, max_hp=bot_tune.max_hp)
             bot.hp, bot.cooldown, bot.fire_cooldown = hp, cooldown, fire_cooldown
             self.bots.append(bot)
 
         self.bullets = [Bullet(b[0], b[1], b[2], b[3], b[4], b[5])
                         for b in state["bullets"]]
-        self.obstacles = [Obstacle(o[0], o[1], o[2], o[3], o[4])
-                          for o in state["obstacles"]]
+        self.obstacles = []
+        for o in state["obstacles"]:
+            obstacle = Obstacle(o[0], o[1], o[2], o[3], self.tuning.obstacle.max_hp)
+            obstacle.hp = o[4]
+            self.obstacles.append(obstacle)
         v, internal, g = state["rng"]
         self.rng.setstate((v, tuple(internal), g))
         self.effects.clear()
