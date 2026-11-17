@@ -182,12 +182,12 @@ def field_by_path(path):
 def _merge_defaults(base, raw):
     """Copy known keys from raw, filling anything missing from base."""
     out = {}
+    raw = raw if isinstance(raw, dict) else {}
     for key, default in base.items():
         if isinstance(default, dict):
-            value = raw.get(key, {}) if isinstance(raw, dict) else {}
-            out[key] = _merge_defaults(default, value)
+            out[key] = _merge_defaults(default, raw.get(key, {}))
         else:
-            out[key] = raw.get(key, default) if isinstance(raw, dict) else copy.deepcopy(default)
+            out[key] = raw.get(key, copy.deepcopy(default))
     return out
 
 
@@ -258,7 +258,7 @@ def load_config(path=None):
             return save_config(DEFAULT_CONFIG, path)
         with open(path, "r", encoding="utf-8") as f:
             return normalize_config(json.load(f))
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
         warnings.warn(f"could not load {path}: {exc}; using defaults", RuntimeWarning)
         return normalize_config(None)
 
