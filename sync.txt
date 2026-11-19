@@ -1,10 +1,11 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-19 16:40 +09:00   (from Y / home PC)
+Last updated : 2026-11-19 17:05 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
-HEAD   : 4f189b9  "Fix EDGE Y frame pacing ..."   (code; this update is the next commit)
+HEAD   : 7d54592  "Phase B: keyframe storm fix, VBV, 120 Hz, threaded decode"
+         (home Y/Z; lab X stays pinned to 4f189b9 until Phase A is done)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
@@ -643,6 +644,41 @@ HEAD   : 4f189b9  "Fix EDGE Y frame pacing ..."   (code; this update is the next
        IDR. A new Z gets an IDR through the caps handshake.
 
   Next: remote measurement with the lab X after its Phase A tests.
+
+[2026-11-19 17:05 +09:00 | from Y — Phase A capture automation]
+  Problem: a 60-70 s capture dies whenever the player dies. Manual play cannot
+  guarantee an uninterrupted run, and a restart mid-capture invalidates it.
+
+  Added:
+    - game/settings.py: load_config/save_config honor FYP_GAME_CONFIG, so a test
+      config can be used without touching the repo game_config.json.
+    - tools/autoplay_z.ps1: writes %TEMP%\fyp_phaseA\game_config.json with
+      player max_hp=1000 (the clamp max), obstacle_damage=0, bot_damage=0 and
+      workload light. It stops only z_client.py (Y and its X link stay up),
+      starts Z from the repo with FYP_GAME_CONFIG / FYP_Y_IP / FYP_SKIP_MENU=1
+      (logs in the temp dir), then holds D/W/A/S and taps SPACE for -Minutes
+      (default 20). The player cannot take damage, so the match cannot end.
+
+  Consequence: A0, A1 and A2 must all use this Z build (7d54592 + the
+  FYP_GAME_CONFIG commit) and this immortal light config. The earlier
+  4f189b9/normal-HP A0 is not comparable — discard it and re-run A0.
+
+  Procedure:
+    1. Home:
+         powershell -ExecutionPolicy Bypass -File .\tools\autoplay_z.ps1 -Minutes 20
+       (auto-starts light; leaves the Y process running).
+    2. X agent: re-arm A0 with FYP_X_GOP=30, then A1 with FYP_X_GOP=120, then
+       A2 with FYP_X_GOP=120 + FYP_X_SIZE=960x540. Keep the same Z match alive
+       through all three X restarts.
+    3. Pause/stream check: Ctrl+C the autoplay (Z stays up and immortal), then
+       dashboard ?ip=127.0.0.1 200 ms -> "X video: paused (EDGE Y)",
+       0 ms -> streaming.
+    4. After Phase A: stop the script's Z, restart home Y and Z on 7d54592,
+       lab X pulls 7d54592, then re-run the Phase B measurements.
+
+  Validation: the temp config loads as max_hp=1000 / damage 0 / light; the
+  default repo config is still max_hp=100 / damage 5; unittest 14 tests OK;
+  selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
 
 END OF SYNC
 

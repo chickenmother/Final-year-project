@@ -4,6 +4,10 @@ The JSON file in the repository root (``game_config.json``) is the source of
 truth for gameplay tuning. It is loaded by Z's local settings screen and sent
 in every ``start`` message, so Cloud X and Middle Y always run the same values
 even when they are on different machines.
+
+``FYP_GAME_CONFIG`` may point at an alternative file (used by
+``tools/autoplay_z.ps1`` to run an isolated immortal config without touching the
+repository copy).
 """
 from __future__ import annotations
 
@@ -20,6 +24,15 @@ from .workload import WorkloadConfig
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "game_config.json"
+CONFIG_ENV = "FYP_GAME_CONFIG"
+
+
+def _config_path(path=None):
+    """Explicit path > FYP_GAME_CONFIG override > repo game_config.json."""
+    if path is not None:
+        return Path(path)
+    override = os.environ.get(CONFIG_ENV)
+    return Path(override) if override else CONFIG_PATH
 
 DEFAULT_CONFIG = {
     "default_workload": "medium",
@@ -252,7 +265,7 @@ def load_config(path=None):
     A malformed file is reported and replaced by defaults in memory; the file
     itself is left untouched so the user can fix it.
     """
-    path = Path(path) if path is not None else CONFIG_PATH
+    path = _config_path(path)
     try:
         if not path.exists():
             return save_config(DEFAULT_CONFIG, path)
@@ -265,7 +278,7 @@ def load_config(path=None):
 
 def save_config(cfg, path=None):
     """Validate and write cfg atomically, returning the normalized copy."""
-    path = Path(path) if path is not None else CONFIG_PATH
+    path = _config_path(path)
     cfg = normalize_config(cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
