@@ -26,6 +26,8 @@ up = down = None
 log_f = log_w = None
 y_encoder = None       # H.264 encoder for the EDGE Y fallback stream
 last_caps = None       # last H.264 capability advertised to X
+last_stream = None     # last "X video on/off" advertised to X
+y_force_key = False    # force an IDR on the next EDGE Y frame
 
 
 class DelayLine:                       # simulated one-way network delay, order preserving
@@ -62,6 +64,8 @@ def broadcast(data, keyframe=True):
     only the newest frame. H.264 frames are queued as a GOP so a P-frame is
     never sent without the keyframe it depends on.
     """
+    global y_force_key
+    dropped = False
     for slot in zs.values():
         q = slot["queue"]
         if keyframe:
@@ -69,7 +73,15 @@ def broadcast(data, keyframe=True):
         q.append(data)
         if len(q) > 30:                 # ~1 s at 30 fps; wait for the next keyframe
             q.clear()
+            dropped = True
         slot["ev"].set()
+    if dropped and isinstance(data, (bytes, bytearray)):
+        # A queue overflow is a real application-level drop: recover with an IDR
+        # instead of waiting for the next scheduled GOP keyframe.
+        if data[:1] == b"x" and up is not None and up.fn is not None:
+            up.put(json.dumps({"t": "need_idr"}))
+        elif data[:1] == b"y":
+            y_force_key = True
 
 
 def all_h264():
@@ -87,6 +99,17 @@ def send_caps():
         print(f"X stream codec: {'H.264' if caps else 'JPEG'}")
 
 
+def send_stream():
+    """Tell X to pause/resume video while Y is (or is not) in fallback."""
+    global last_stream
+    on = state["mode"] == "X"
+    if up is not None and up.fn is not None and on != last_stream:
+        last_stream = on
+        up.put(json.dumps({"t": "stream", "on": on}))
+        print(f"[{time.strftime('%X')}] X video: "
+              f"{'streaming' if on else 'paused (EDGE Y)'}")
+
+
 async def z_sender(ws, slot, lock):
     try:
         while True:
@@ -101,19 +124,22 @@ async def z_sender(ws, slot, lock):
 
 
 def update_mode():
-    global bad, good_since
+    global bad, good_since, y_force_key
     r = state["rtt"]
     if state["mode"] == "X":
         bad = bad + 1 if r > C.HIGH_MS else 0
         if bad >= C.BAD_COUNT:
             state["mode"], bad, good_since = "Y", 0, None
+            y_force_key = True          # the first EDGE Y frame must be an IDR
             print(f"[{time.strftime('%X')}] SWITCH X -> Y (rtt={r:.0f} ms)")
+            send_stream()               # stop the cloud video: nobody displays it
     else:
         if r < C.LOW_MS:
             good_since = good_since or time.monotonic()
             if time.monotonic() - good_since > C.RECOVER_S:
                 state["mode"], bad = "X", 0
                 print(f"[{time.strftime('%X')}] SWITCH Y -> X (rtt={r:.0f} ms)")
+                send_stream()           # resume the cloud video
         else:
             good_since = None
 
@@ -151,7 +177,7 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
 
 
 async def tick_loop():
-    global y_encoder, paused
+    global y_encoder, paused, y_force_key
     nxt = time.monotonic()
     while True:
         nxt += TICK
@@ -181,6 +207,9 @@ async def tick_loop():
         if state["mode"] == "Y" and game.tick % C.Y_STREAM_EVERY == 0:
             if y_encoder is not None and all_h264():
                 try:
+                    if y_force_key:
+                        y_encoder.force_keyframe()
+                        y_force_key = False
                     frame = game.render_surface(C.Y_SIZE, smooth=False)
                     for payload, key in y_encoder.encode_surface(frame):
                         # Lowercase 'y' marks H.264; byte 1 is the keyframe flag.
@@ -215,7 +244,7 @@ async def ping_loop():
 
 
 async def z_handler(ws):
-    global game, last_fwd, bad, good_since, paused
+    global game, last_fwd, bad, good_since, paused, y_force_key
     slot = {"queue": collections.deque(), "ev": asyncio.Event(), "h264": False}
     lock = asyncio.Lock()
     zs[ws] = slot
@@ -260,6 +289,8 @@ async def z_handler(ws):
                 state.update(tick=0, mode="X", e2e=0.0, rtt_zy=0.0, lag=0, playing=True)
                 inp.update(keys="", seq=0, latch=False)
                 last_fwd, bad, good_since = 0, 0, None
+                y_force_key = False
+                send_stream()               # a new game starts on the cloud tier
                 up.put(json.dumps({"t": "start", "workload": workload, "seed": seed,
                                    "config": game.config}))
                 print(f"[{time.strftime('%X')}] game start requested: "
@@ -270,8 +301,11 @@ async def z_handler(ws):
             inp["keys"], inp["seq"] = m["keys"], m["n"]
             state["e2e"] = m.get("e2e", 0.0)
             state["rtt_zy"] = m.get("rzy", state["rtt_zy"])
-            if m.get("want_idr"):               # Z lost a frame: ask X for a keyframe
-                up.put(json.dumps({"t": "need_idr"}))
+            if m.get("want_idr"):               # Z lost a frame: recover immediately
+                if state["mode"] == "Y" and y_encoder is not None:
+                    y_force_key = True          # we are the sender in fallback
+                else:
+                    up.put(json.dumps({"t": "need_idr"}))
             if "pts" in m:                      # Z's Z<->Y latency probe: echo it back
                 async with lock:
                     await ws.send(json.dumps({"t": "pong", "ts": m["pts"]}))
@@ -304,15 +338,16 @@ async def dash_handler(ws):
 
 async def x_session():
     """One connection to Cloud X. Returns when the link closes."""
-    global last_fwd, bad, good_since, last_caps
+    global last_fwd, bad, good_since, last_caps, last_stream
     async with connect(C.X_URI, max_size=4 << 20, compression=None,
                        ping_interval=C.PING_INTERVAL, ping_timeout=C.PING_TIMEOUT) as xws:
         print(f"connected to X at {C.X_URI}")
-        last_fwd, bad, good_since, last_caps = 0, 0, None, None
+        last_fwd, bad, good_since, last_caps, last_stream = 0, 0, None, None, None
         state["linked"], state["rtt"] = True, 0.0
         up.fn, down.fn = xws.send, on_x_msg
         up.delay = down.delay = state["delay_ms"] / 2000
         send_caps()                     # tell X which codec the connected Z can take
+        send_stream()                   # and whether X should send video at all
 
         async def rx():
             async for m in xws:
@@ -331,7 +366,7 @@ async def x_session():
 
 
 async def main():
-    global up, down, log_f, log_w, y_encoder
+    global up, down, log_f, log_w, y_encoder, y_force_key
     os.makedirs("logs", exist_ok=True)
     log_f = open(os.path.join("logs", "log_y.csv"), "w", newline="")
     log_w = csv.writer(log_f)
@@ -369,7 +404,9 @@ async def main():
                 state["linked"] = False
                 if state["mode"] != "Y":               # keep playing on the edge while X is away
                     state["mode"] = "Y"
+                    y_force_key = True
                     print(f"[{time.strftime('%X')}] SWITCH X -> Y (cloud link lost)")
+                    send_stream()                      # no-op while X is down; resent on reconnect
                 await asyncio.sleep(C.RECONNECT_S)
     finally:
         for t in loops:

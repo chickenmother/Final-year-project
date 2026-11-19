@@ -41,6 +41,8 @@ TICK_RATE = 60          # game ticks per second (each tick = 4 original 240 FPS 
 # cannot keep up (for example, a slow CPU or a much larger FYP_X_SIZE).
 X_STREAM_EVERY = max(1, int(os.environ.get("FYP_X_STREAM_EVERY", "1")))
 Y_STREAM_EVERY = int(os.environ.get("FYP_Y_STREAM_EVERY", "2"))   # 2 -> 30 fps
+# End Z uses these to distinguish a normal frame stride from a lost frame,
+# so keep them identical on the sending tier and on Z.
 Y_FPS = max(1, TICK_RATE // Y_STREAM_EVERY)
 
 # Middle Y fallback encoder. Set FYP_Y_CODEC=jpeg to force the old path.
@@ -55,7 +57,8 @@ Y_GOP = int(os.environ.get("FYP_Y_GOP", "10"))
 X_FPS = max(1, TICK_RATE // X_STREAM_EVERY)
 X_CODEC = os.environ.get("FYP_X_CODEC", "h264").lower()
 X_ENCODER = os.environ.get("FYP_X_ENCODER", "libx264").lower()
-X_BITRATE = int(os.environ.get("FYP_X_BITRATE", "8000000"))
+# 4 Mbps is a safer default on a WAN; raise it for a LAN-only demo.
+X_BITRATE = int(os.environ.get("FYP_X_BITRATE", "4000000"))
 X_GOP = int(os.environ.get("FYP_X_GOP", "30"))
 
 WIN_W, WIN_H = _pair("FYP_WIN_SIZE", "1280x720")      # window on Z

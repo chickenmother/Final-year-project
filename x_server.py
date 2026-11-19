@@ -35,7 +35,7 @@ async def handler(ws):
     # two tiers converge on whichever side kept the newer state. This also
     # survives a Y or X restart without a visible jump.
     resync, need_at = True, time.monotonic()
-    z_h264, force_key = False, True
+    z_h264, force_key, streaming = False, True, True
     paused, playing = False, False
     print(f"Y connected from {ws.remote_address}")
     lock = asyncio.Lock()
@@ -99,6 +99,17 @@ async def handler(ws):
                     z_h264, force_key = new, new
             elif t == "need_idr":
                 force_key = True
+            elif t == "stream":
+                new = bool(m.get("on", True))
+                if new != streaming:
+                    streaming = new
+                    if streaming:
+                        force_key = True        # resume with an IDR
+                    else:
+                        out["queue"].clear()
+                        out["jpeg"] = None
+                    print(f"[{time.strftime('%X')}] X video: "
+                          f"{'streaming' if streaming else 'paused (EDGE Y)'}")
             elif t == "pause":
                 paused = True
                 print("game paused")
@@ -134,7 +145,11 @@ async def handler(ws):
                                                "score": game.score,
                                                "deaths": game.deaths}))
                     # if we are behind (inputs waiting), skip rendering so we catch up fast
-                    if not game.game_over and game.tick % C.X_STREAM_EVERY == 0 and len(q) < 3:
+                    if (not game.game_over and game.tick % C.X_STREAM_EVERY == 0
+                            and streaming and len(q) >= 3):
+                        out["need_key"] = True      # skipped frame: make the next one an IDR
+                    if (not game.game_over and game.tick % C.X_STREAM_EVERY == 0
+                            and streaming and len(q) < 3):
                         seq = m["seq"]
                         t0 = time.perf_counter()
                         if x_encoder is not None and z_h264:

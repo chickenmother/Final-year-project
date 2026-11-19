@@ -128,7 +128,11 @@ async def main():
                 payload = msg[10:]
                 if decoder is None or dec_src != src:
                     decoder, dec_src, need_key = H264Decoder(), src, True
-                if last_tick is not None and tick > last_tick + 1:
+                    last_tick = None
+                # The sender may stream every Nth tick (Y: 2, X: 1). Only a jump
+                # larger than that stride is a dropped frame, not a normal step.
+                step = C.X_STREAM_EVERY if src == "x" else C.Y_STREAM_EVERY
+                if last_tick is not None and (tick < last_tick or tick > last_tick + step):
                     if not need_key:
                         st["want_idr"] = True    # a frame was dropped: ask for an IDR
                     need_key = True              # do not draw until a clean reference arrives

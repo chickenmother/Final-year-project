@@ -1,10 +1,10 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-10 17:35 +09:00   (from X)
+Last updated : 2026-11-19 15:50 +09:00   (from X)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
-HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commit)
+HEAD   : 2640bf2  "Harden config loading ..."   (code; this update is the next commit)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
@@ -551,6 +551,54 @@ HEAD   : dc1e6f1  "Add latency notes ..."   (code; this update is the next commi
   - Verified custom config end-to-end (HP=77, medium bots=2, obstacles=4
     reached both Y and X). 14 unit tests pass; legacy selftest hash is still
     30f043222e75fabf0ec80d2cd7edf6df.
+
+[2026-11-19 15:50 +09:00 | from X — fix: 3 fps in EDGE Y, flapping, cloud video pause]
+  Diagnosis from logs/log_y.csv and logs/log_z.csv (remote X; Y and Z on the
+  same home PC, Tailscale direct 32 ms, rtt_zy 0.3 ms):
+    - Z displayed only Y keyframes: 81 Y frames, 78 with tick delta 20
+      (= 10-frame GOP x Y_STREAM_EVERY 2) -> 3 fps. Z's gap check compared
+      tick to +1 even though Y streams every 2nd tick, so every Y frame was
+      treated as a lost frame.
+    - CLOUD X itself was healthy: 60 fps, tick delta 1, e2e p50 44 ms,
+      p95 55 ms. The "150 ms" was a transient / the X<->Y RTT spike.
+    - X<->Y RTT p50 32.5 ms but spikes to ~100 ms; with the default 80/50
+      thresholds this caused 55 X<->Y transitions in 28 min.
+    - X kept streaming 720p60 / 8 Mbps while in fallback (Y-mode RTT p50 48,
+      p95 102), keeping the link busy and delaying recovery.
+
+  Fixes in this commit:
+    - z_client: stride-aware gap detection
+        step = X_STREAM_EVERY for 'x', Y_STREAM_EVERY for 'y'
+      Only a jump larger than the stride (or a backwards tick) counts as a
+      dropped frame. IMPORTANT: FYP_X_STREAM_EVERY / FYP_Y_STREAM_EVERY must
+      be identical on the encoding tier and on Z.
+    - y_gateway: force an IDR when entering EDGE Y, on link loss, and when Z
+      sends want_idr while in EDGE Y (it used to forward the request to X,
+      which was not the streaming tier). A per-Z queue overflow now also
+      requests/forces an IDR.
+    - x_server: while Y is in fallback it sends {"t":"stream","on":false};
+      X stops rendering/encoding (still steps the game and answers pings) and
+      resumes with an IDR. A render skipped due to input backlog now sets
+      need_key so the next encoded frame is an IDR.
+    - config: X_BITRATE default 8 Mbps -> 4 Mbps (safer on a WAN).
+
+  Verified locally (X+Y+Z on this PC, light workload, menu auto-start):
+    - CLOUD X: 60.6 fps, tick delta 1, encode 5.6 ms, e2e ~26 ms.
+    - forced EDGE Y: 30.3 fps, all tick deltas 2, e2e 9-12 ms; logs/log_x.csv
+      stays empty while X is paused (X console: "X video: paused (EDGE Y)").
+    - FYP_X_STREAM_EVERY=2 on X and Z: 30.4 fps, deltas 2, no keyframe waits.
+    - selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
+
+  Required on X, Y and Z:
+    1) git pull (all three tiers; the frame layout did not change, but the
+       stride and pause behaviour must match).
+    2) Use the same FYP_X_STREAM_EVERY / FYP_Y_STREAM_EVERY on the sender and
+       on Z (defaults 1 and 2 are correct).
+    3) On Y, calibrate for the lab link (see note.txt):
+         FYP_HIGH_MS=110, FYP_LOW_MS=75, FYP_BAD_COUNT=5, FYP_RECOVER_S=3
+    4) X now defaults to 4 Mbps. Raise FYP_X_BITRATE only if the link is clean.
+    5) If X's logs/log_x.csv shows encode_ms p95 above ~12 ms, set
+       FYP_X_STREAM_EVERY=2 on X AND Z (30 fps).
 
 END OF SYNC
 
