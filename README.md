@@ -519,6 +519,47 @@ Y flushes its file on every sample; Z flushes every 30 frames.
 
 ---
 
+## Test Control Panel (Phase 1)
+
+Y now accepts a small test protocol on the dashboard WebSocket (port 8002). A
+test plan selects the workload, mode (`auto`/`cloud`/`edge`), X video preset
+(recorded now; runtime switching arrives in Phase 3), Z input pattern
+(`idle`/`strafe`/`circle`/`figure8`/`shoot`), warm-up/measurement duration and a
+timeline of events (`delay`, `mode`, `pause`, `pattern`).
+
+Phase 1 ships a CLI driver and the Y/Z protocol; the Tk panel arrives in Phase 2.
+
+```powershell
+# Start Cloud X, Middle Y and End Z normally. Z must be launched in test mode:
+$env:FYP_TEST = "1"
+.\run_z.cmd <Y_IP>
+
+# Drive a plan through the Y dashboard socket:
+.\venv\Scripts\python.exe tools\test_cli.py --y ws://127.0.0.1:8002 `
+    --plan tools\plans\phase1_smoke.json
+```
+
+A plan is plain JSON; timeline events are relative to the measurement start:
+
+```json
+{"name":"A1 delay sweep","warmup_s":5,"duration_s":60,"workload":"light",
+ "mode":"auto","video_preset":"A1","input_pattern":"strafe",
+ "events":[{"at_s":10,"kind":"delay","delay_ms":100,"hold_s":15},
+           {"at_s":30,"kind":"mode","mode":"edge","hold_s":10},
+           {"at_s":50,"kind":"pause","hold_s":5}]}
+```
+
+Y writes `logs/reports/<id>.json` and `.csv`: date/time, plan, environment,
+applied events, 5 Hz samples (mode, RTT, injected delay, e2e, X/Y/Z FPS,
+decode/encode when available) and p50/p90/p99/max summaries. Paused samples are
+flagged and excluded from the summaries; `tools/test_cli.py` prints the summary
+when the run finishes. The raw per-frame logs remain in `logs/log_x/y/z.csv`.
+
+Phase 3 adds runtime X `video` switching (A0/A1/A2/intra), X FPS/encode stats
+and the `stop` command; until then the X encoder is configured by its existing
+`FYP_X_*` environment variables and the report records
+`video_runtime: current`.
+
 ## Configuration
 
 ### Gameplay configuration

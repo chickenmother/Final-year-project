@@ -19,6 +19,24 @@ hires_timer()
 KEYMAP = (("w", pygame.K_w), ("a", pygame.K_a), ("s", pygame.K_s), ("d", pygame.K_d), (" ", pygame.K_SPACE))
 
 
+def pattern_keys(name, elapsed):
+    """Deterministic input pattern for unattended test runs."""
+    if name == "idle":
+        return ""
+    if name == "strafe":
+        return "d" if int(elapsed / 2.0) % 2 == 0 else "a"
+    if name == "circle":
+        return ("d", "s", "a", "w")[int(elapsed / 2.0) % 4]
+    if name == "figure8":
+        return ("d", "dw", "w", "wa", "a", "as", "s", "sd")[int(elapsed / 1.5) % 8]
+    if name == "shoot":
+        keys = "d" if int(elapsed / 3.0) % 2 == 0 else "a"
+        if elapsed % 0.5 < 0.15:
+            keys += " "
+        return keys
+    return ""
+
+
 async def main():
     pygame.init()
     screen = pygame.display.set_mode((C.WIN_W, C.WIN_H))
@@ -35,10 +53,13 @@ async def main():
     log.writerow(["unix_time", "source", "codec", "tick", "first",
                   "e2e_ms", "decode_ms", "rtt_zy_ms"])
 
+    test_mode = os.environ.get("FYP_TEST") == "1"
     sent, st = {}, {"e2e": 0.0, "rzy": 0.0, "want_idr": False,
                     "game_over": False, "score": 0, "deaths": 0,
                     "workload": "heavy", "pause_requested": False,
-                    "return_to_menu": False}
+                    "return_to_menu": False, "test_mode": test_mode,
+                    "test_state": "ready", "pattern": "strafe",
+                    "test_t0": 0.0, "fps": 0.0, "decode": 0.0}
     seq, nframes, running = 0, 0, True
     pending_space, last_frame = False, None
 
@@ -49,16 +70,23 @@ async def main():
             if e.type == pygame.QUIT:
                 running = False
             if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
-                st["pause_requested"] = True
+                if not st["test_mode"]:
+                    st["pause_requested"] = True
             if e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE:
-                pending_space = True        # a tap between two ticks must not be lost
+                if not st["test_mode"]:
+                    pending_space = True    # a tap between two ticks must not be lost
         return running
 
     async def input_loop(ws):
         nonlocal seq, pending_space
         nxt = time.monotonic()
         ping_every = max(1, C.Z_PING_EVERY * max(1, C.Z_INPUT_HZ // C.TICK_RATE))
-        while pump_events() and not st["game_over"]:
+        while (pump_events() and not st["game_over"]
+               and st["test_state"] != "finished"):
+            if st["test_state"] == "paused":
+                nxt = time.monotonic()
+                await asyncio.sleep(1 / max(1, C.Z_INPUT_HZ))
+                continue
             if st.pop("pause_requested", False):
                 await ws.send(json.dumps({"t": "pause"}))
                 choice = pause_menu.run(last_frame, st["score"])
@@ -79,15 +107,24 @@ async def main():
                     return
                 await ws.send(json.dumps({"t": "resume"}))
                 continue
-            k = pygame.key.get_pressed()
-            keys = "".join(c for c, kc in KEYMAP if k[kc])
-            if pending_space and " " not in keys:
-                keys += " "
-            pending_space = False
+            if st["test_mode"]:
+                elapsed = (time.monotonic() - st["test_t0"]
+                           if st["test_t0"] else 0.0)
+                keys = pattern_keys(st["pattern"], elapsed)
+                pending_space = False
+            else:
+                k = pygame.key.get_pressed()
+                keys = "".join(c for c, kc in KEYMAP if k[kc])
+                if pending_space and " " not in keys:
+                    keys += " "
+                pending_space = False
             seq += 1
             sent[seq] = time.monotonic()
             sent.pop(seq - C.Z_INPUT_HZ * 10, None)   # keep ~10 s of history
-            msg = {"keys": keys, "n": seq, "e2e": st["e2e"], "rzy": round(st["rzy"], 1)}
+            msg = {"keys": keys, "n": seq, "e2e": st["e2e"],
+                   "rzy": round(st["rzy"], 1),
+                   "fps": round(st.get("fps", 0.0), 1),
+                   "decode": round(st.get("decode", 0.0), 1)}
             if st.pop("want_idr", False):        # the decoder lost its reference
                 msg["want_idr"] = True
             if seq % ping_every == 0:            # ~10 probes/s, independent of input rate
@@ -97,7 +134,7 @@ async def main():
             await asyncio.sleep(max(0, nxt - time.monotonic()))
 
     async def receiver(ws):
-        nonlocal nframes, last_frame
+        nonlocal nframes, last_frame, seq, pending_space
         overlay = shadow = None
         last_src = last_codec = None
         decoder = None
@@ -119,6 +156,39 @@ async def main():
                     st["deaths"] = int(m.get("deaths", 0))
                     print(f"game over: score={st['score']}")
                     return
+                elif kind == "test":
+                    cmd = m.get("cmd")
+                    if cmd == "start":
+                        st["workload"] = m.get("workload", "light")
+                        st["pattern"] = m.get("pattern", st["pattern"])
+                        st["test_state"] = "running"
+                        st["test_t0"] = time.monotonic()
+                        st.update(e2e=0.0, rzy=0.0, want_idr=False,
+                                  game_over=False, score=0, deaths=0,
+                                  return_to_menu=False)
+                        sent.clear()
+                        seq = 0
+                        pending_space = False
+                        last_seq = None
+                        last_tick = None
+                        need_key = True
+                        print(f"[{time.strftime('%X')}] test start: "
+                              f"{st['workload']} / {st['pattern']}")
+                        await ws.send(json.dumps({"t": "start", "mode": "vs_bot",
+                                                  "workload": st["workload"],
+                                                  "seed": int(m.get("seed", 12345)),
+                                                  "config": game_config}))
+                    elif cmd == "pause":
+                        st["test_state"] = "paused"
+                    elif cmd == "resume":
+                        st["test_state"] = "running"
+                    elif cmd == "pattern":
+                        st["pattern"] = m.get("pattern", st["pattern"])
+                    elif cmd == "stop":
+                        st["test_state"] = "finished"
+                        st["return_to_menu"] = True
+                        print(f"[{time.strftime('%X')}] test stopped")
+                        return
                 continue
             src = chr(msg[0])
             if src in ("x", "y"):
@@ -173,6 +243,7 @@ async def main():
                 decode_ms = (time.perf_counter() - t_dec) * 1000
             first = 1 if s != last_seq else 0
             last_seq = s
+            st["decode"] = decode_ms
             if img.get_size() != (C.WIN_W, C.WIN_H):
                 img = pygame.transform.scale(img, (C.WIN_W, C.WIN_H))
             last_frame = img
@@ -192,6 +263,7 @@ async def main():
             elif now - fps_t0 >= 1.0:
                 fps_value = fps_count / (now - fps_t0)
                 fps_count, fps_t0 = 0, now
+                st["fps"] = fps_value
             if nframes % 30 == 0:
                 log_f.flush()
             # the overlay only needs refreshing a few times per second
@@ -200,6 +272,11 @@ async def main():
                 txt = (f"{'CLOUD X' if src == 'X' else 'EDGE Y'} "
                        f"({'H.264' if codec == 'h264' else 'JPEG'})"
                        f"   input->display {st['e2e']:.0f} ms   Y link {st['rzy']:.0f} ms")
+                if st["test_mode"]:
+                    elapsed = (time.monotonic() - st["test_t0"]
+                               if st["test_t0"] else 0.0)
+                    txt = (f"TEST {st['test_state'].upper():<8} "
+                           f"{elapsed:5.1f}s   " + txt)
                 shadow = font.render(txt, True, (0, 0, 0))
                 overlay = font.render(txt, True, col)
                 last_src, last_codec = src, codec
@@ -239,6 +316,28 @@ async def main():
     auto_workload = os.environ.get("FYP_MENU_WORKLOAD", game_config["default_workload"])
     pending_workload = None
     try:
+        if test_mode:
+            # Unattended mode: no menu. Connect, advertise capabilities, then wait
+            # for Y to drive test start/pause/resume/stop commands.
+            while running:
+                if not pump_events():
+                    break
+                try:
+                    async with connect(C.Y_URI, max_size=4 << 20, compression=None,
+                                       ping_interval=C.PING_INTERVAL,
+                                       ping_timeout=C.PING_TIMEOUT) as ws:
+                        print(f"test mode: connected to Y at {C.Y_URI}")
+                        await ws.send(json.dumps({"t": "hello",
+                                                  "h264": H264Decoder is not None}))
+                        st.update(test_state="ready", test_t0=0.0,
+                                  return_to_menu=False, game_over=False)
+                        await session(ws)
+                except (OSError, ConnectionClosed) as e:
+                    print(f"Y link down ({e!r})")
+                if not running:
+                    break
+                await asyncio.sleep(1.0)
+            return
         while running:
             if pending_workload is not None:
                 choice = {"action": "start", "workload": pending_workload}

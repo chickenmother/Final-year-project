@@ -1,0 +1,15 @@
+{
+  "name": "Phase 1 smoke",
+  "warmup_s": 2,
+  "duration_s": 10,
+  "seed": 12345,
+  "workload": "light",
+  "mode": "auto",
+  "video_preset": "current",
+  "input_pattern": "strafe",
+  "events": [
+    {"at_s": 2, "kind": "delay", "delay_ms": 100, "hold_s": 3},
+    {"at_s": 6, "kind": "pause", "hold_s": 2},
+    {"at_s": 8, "kind": "pattern", "pattern": "shoot"}
+  ]
+}

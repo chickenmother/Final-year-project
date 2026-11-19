@@ -1,10 +1,12 @@
 """EDGE Y (laptop A): sequencer + fallback renderer + latency monitor + mode switch + dashboard backend."""
-import asyncio, collections, csv, json, os, struct, time
+import asyncio, collections, csv, json, os, struct, sys, time
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
 from common import config as C
+from common import report as report_mod
 from common.net import lan_ip, quiet_handshake_errors
+from common.testplan import MODE_OVERRIDE, PlanError, TestPlan
 from common.win import hires_timer
 hires_timer()
 quiet_handshake_errors()
@@ -17,7 +19,10 @@ except ImportError:                      # PyAV not installed: JPEG fallback
 TICK = 1 / C.TICK_RATE
 game = Game()
 state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
-         "e2e": 0.0, "tick": 0, "linked": False, "playing": False}
+         "e2e": 0.0, "tick": 0, "linked": False, "playing": False,
+         "paused": False, "mode_override": None, "test": None,
+         "z_stats": {}, "x_stats": {}, "x_fps": 0.0, "y_fps": 0.0,
+         "reports": []}
 inp = {"keys": "", "seq": 0, "latch": False}
 zs = {}                # Z connection -> frame queue + capability slot
 last_fwd, bad, good_since = 0, 0, None
@@ -28,6 +33,11 @@ y_encoder = None       # H.264 encoder for the EDGE Y fallback stream
 last_caps = None       # last H.264 capability advertised to X
 last_stream = None     # last "X video on/off" advertised to X
 y_force_key = False    # force an IDR on the next EDGE Y frame
+x_frame_times = collections.deque()     # X frames received (for x_fps)
+y_frame_times = collections.deque()     # frames broadcast by Y (for y_fps)
+test_runner = None
+REPORT_DIR = os.path.join("logs", "reports")
+
 
 
 class DelayLine:                       # simulated one-way network delay, order preserving
@@ -65,6 +75,7 @@ def broadcast(data, keyframe=True):
     never sent without the keyframe it depends on.
     """
     global y_force_key
+    y_frame_times.append(time.monotonic())
     dropped = False
     for slot in zs.values():
         q = slot["queue"]
@@ -115,6 +126,10 @@ async def z_sender(ws, slot, lock):
         while True:
             await slot["ev"].wait()
             slot["ev"].clear()
+            while slot["ctl"]:             # test/control messages jump the frame queue
+                data = slot["ctl"].popleft()
+                async with lock:
+                    await ws.send(data)
             while slot["queue"]:
                 data = slot["queue"].popleft()
                 async with lock:           # frames and pong replies share the socket
@@ -125,6 +140,16 @@ async def z_sender(ws, slot, lock):
 
 def update_mode():
     global bad, good_since, y_force_key
+    override = state.get("mode_override")
+    if override in ("X", "Y"):
+        if state["mode"] != override:
+            state["mode"] = override
+            bad, good_since = 0, None
+            if override == "Y":
+                y_force_key = True      # first edge frame must be an IDR
+            print(f"[{time.strftime('%X')}] MODE OVERRIDE -> {override}")
+            send_stream()
+        return
     r = state["rtt"]
     if state["mode"] == "X":
         bad = bad + 1 if r > C.HIGH_MS else 0
@@ -158,6 +183,7 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
         else:
             return                      # unknown marker: ignore rather than mis-parse
         state["lag"] = game.tick - tick
+        x_frame_times.append(time.monotonic())
         if state["mode"] == "X" and tick > last_fwd:
             last_fwd = tick
             broadcast(msg, keyframe=key)
@@ -174,6 +200,8 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
             state["playing"] = False
             broadcast(json.dumps(m), keyframe=True)
             print(f"game over: score={m.get('score')}")
+            if test_runner is not None:
+                test_runner.on_game_over()
 
 
 async def tick_loop():
@@ -234,8 +262,13 @@ async def tick_loop():
 
 async def ping_loop():
     while True:
+        now = time.monotonic()
         if up is not None and up.fn is not None:
-            up.put(json.dumps({"t": "ping", "ts": time.monotonic()}))
+            up.put(json.dumps({"t": "ping", "ts": now}))
+        state["x_fps"] = window_fps(x_frame_times, now)
+        state["y_fps"] = window_fps(y_frame_times, now)
+        if test_runner is not None:
+            test_runner.tick(now)
         log_w.writerow([round(time.time(), 3), state["mode"], round(state["rtt"], 1),
                         state["delay_ms"], round(state["e2e"], 1),
                         round(state["rtt_zy"], 1), int(state["linked"])])
@@ -243,9 +276,399 @@ async def ping_loop():
         await asyncio.sleep(0.2)
 
 
+def set_delay(ms):
+    """Set the injected X<->Y RTT delay (0..400 ms)."""
+    state["delay_ms"] = max(0.0, min(400.0, float(ms)))
+    if up is not None and down is not None:
+        up.delay = down.delay = state["delay_ms"] / 2000   # one-way = RTT / 2
+
+
+def window_fps(times, now):
+    while times and times[0] < now - 1.0:
+        times.popleft()
+    return float(len(times))
+
+
+def send_to_z(data):
+    """Queue a control message for every connected Z (bypasses frame batching)."""
+    count = 0
+    for slot in list(zs.values()):
+        slot["ctl"].append(data)
+        slot["ev"].set()
+        count += 1
+    return count
+
+
+class TestRunner:
+    """One measurement run: plan clock, timeline events, samples and report."""
+
+    def __init__(self, directory):
+        self.directory = directory
+        self.plan = None
+        self.phase = "idle"
+        self.started_at = None
+        self.started_mono = None
+        self.measure_start = None
+        self.finished_at = None
+        self.finished_elapsed = 0.0
+        self.report_id = None
+        self.report_paths = None
+        self.samples = []
+        self.events = []
+        self.applied = set()
+        self.pause_started = None
+        self.paused_total = 0.0
+        self.last_sample = 0.0
+        self.error = ""
+        self.hold_actions = []
+        self.reason = ""
+
+    # -- status ---------------------------------------------------------
+    def _elapsed(self):
+        if self.measure_start is None:
+            return 0.0
+        if self.phase == "finished":
+            return max(0.0, self.finished_elapsed)
+        return max(0.0, time.monotonic() - self.measure_start)
+
+    def snapshot(self):
+        now = time.monotonic()
+        plan = self.plan
+        elapsed = self._elapsed()
+        warmup_left = 0.0
+        if self.phase == "warmup" and self.measure_start is not None:
+            warmup_left = max(0.0, self.measure_start - now)
+        next_event = None
+        if plan is not None:
+            for index, event in enumerate(plan.sorted_events()):
+                if index not in self.applied:
+                    next_event = {"at_s": round(event.at_s, 2),
+                                  "kind": event.kind,
+                                  "value": event.value(),
+                                  "label": event.label()}
+                    break
+        duration = plan.duration_s if plan else 0.0
+        return {
+            "state": self.phase,
+            "name": plan.name if plan else "",
+            "warmup_s": plan.warmup_s if plan else 0.0,
+            "duration_s": duration,
+            "elapsed_s": round(0.0 if self.phase == "warmup" else elapsed, 2),
+            "warmup_left_s": round(warmup_left, 2),
+            "remaining_s": round(max(0.0, duration - elapsed), 2),
+            "progress": round(min(1.0, elapsed / duration), 3) if duration else 0.0,
+            "mode": state.get("mode"),
+            "mode_override": state.get("mode_override"),
+            "pattern": plan.input_pattern if plan else "",
+            "video_preset": plan.video_preset if plan else "",
+            "next_event": next_event,
+            "events": list(self.events),
+            "report_id": self.report_id,
+            "error": self.error,
+        }
+
+    def set_plan(self, raw):
+        plan = TestPlan.from_dict(raw or {})
+        if self.phase in ("starting", "warmup", "running", "paused"):
+            raise PlanError("a test is already running")
+        self.plan = plan
+        state["test"] = self.snapshot()
+        return plan
+
+    # -- lifecycle ------------------------------------------------------
+    async def start(self, raw):
+        global paused
+        plan = TestPlan.from_dict(raw or {})
+        if self.phase in ("starting", "warmup", "running", "paused"):
+            raise PlanError("a test is already running")
+        if not zs:
+            raise PlanError("no End Z is connected")
+        self.plan = plan
+        self.phase = "starting"
+        self.error = ""
+        self.samples = []
+        self.events = []
+        self.applied = set()
+        self.hold_actions = []
+        self.pause_started = None
+        self.paused_total = 0.0
+        self.last_sample = 0.0
+        self.finished_elapsed = 0.0
+        self.started_at = time.time()
+        self.started_mono = time.monotonic()
+        self.measure_start = None
+        self.finished_at = None
+        self.reason = ""
+        self.report_paths = None
+        self.report_id = report_mod.new_id()
+        paused = False
+        state["paused"] = False
+        state["mode_override"] = plan.mode_override()
+        set_delay(0)
+        update_mode()
+        send_stream()
+        payload = {"t": "test", "cmd": "start", "workload": plan.workload,
+                   "seed": plan.seed, "pattern": plan.input_pattern,
+                   "plan": plan.name}
+        if not send_to_z(json.dumps(payload)):
+            self.phase = "error"
+            self.error = "End Z is not reachable"
+            state["test"] = self.snapshot()
+            raise PlanError(self.error)
+        state["test"] = self.snapshot()
+        print(f"[{time.strftime('%X')}] test start: {plan.name} "
+              f"({plan.warmup_s:g}+{plan.duration_s:g}s, {plan.workload}, "
+              f"mode {plan.mode}, input {plan.input_pattern})")
+        return plan
+
+    def on_game_start(self):
+        if self.plan is None:
+            return
+        if self.phase not in ("starting", "warmup"):
+            return
+        if self.measure_start is not None:
+            return
+        now = time.monotonic()
+        self.measure_start = now + self.plan.warmup_s
+        self.phase = "warmup"
+        self.started_mono = now
+        self.last_sample = 0.0
+        state["mode_override"] = self.plan.mode_override()
+        update_mode()                  # re-apply a forced cloud/edge mode after start
+        send_stream()
+        state["test"] = self.snapshot()
+        print(f"[{time.strftime('%X')}] test warm-up {self.plan.warmup_s:g}s")
+
+    # -- timeline -------------------------------------------------------
+    def tick(self, now=None):
+        now = time.monotonic() if now is None else now
+        self.apply_holds(now)
+        if self.phase == "starting":
+            if self.started_mono is not None and now - self.started_mono > 8.0:
+                self.fail("End Z did not start the match")
+            state["test"] = self.snapshot()
+            return
+        if self.phase == "warmup":
+            if self.measure_start is not None and now >= self.measure_start:
+                self.phase = "running"
+                self.last_sample = 0.0
+                self.apply_due(0.0, now)
+            state["test"] = self.snapshot()
+            return
+        if self.phase == "paused":
+            state["test"] = self.snapshot()
+            return
+        if self.phase != "running":
+            state["test"] = self.snapshot()
+            return
+        elapsed = max(0.0, now - self.measure_start)
+        self.apply_due(elapsed, now)
+        if self.phase != "running":
+            state["test"] = self.snapshot()
+            return
+        if now - self.last_sample >= 0.2:
+            self.last_sample = now
+            self.samples.append(self.sample(elapsed))
+        if elapsed >= self.plan.duration_s:
+            self.finish()
+            return
+        state["test"] = self.snapshot()
+
+    def apply_due(self, elapsed, now):
+        if self.plan is None:
+            return
+        for index, event in enumerate(self.plan.sorted_events()):
+            if index in self.applied or event.at_s > elapsed + 1e-6:
+                continue
+            self.applied.add(index)
+            self.events.append({"elapsed_s": round(elapsed, 2),
+                                "wall": round(time.time(), 3),
+                                **event.to_dict()})
+            if event.kind == "delay":
+                set_delay(event.delay_ms)
+                if event.hold_s is not None:
+                    self.hold_actions.append((now + event.hold_s, "delay", 0))
+            elif event.kind == "mode":
+                state["mode_override"] = MODE_OVERRIDE.get(event.mode)
+                update_mode()
+                send_stream()
+                if event.hold_s is not None:
+                    self.hold_actions.append((now + event.hold_s, "mode", None))
+            elif event.kind == "pattern":
+                send_to_z(json.dumps({"t": "test", "cmd": "pattern",
+                                      "pattern": event.pattern}))
+                if event.hold_s is not None:
+                    self.hold_actions.append((now + event.hold_s, "pattern", None))
+            elif event.kind == "pause":
+                self.pause("timeline")
+                if event.hold_s is not None:
+                    self.hold_actions.append((now + event.hold_s, "resume", None))
+                break
+            print(f"[{time.strftime('%X')}] test event: {event.label()} "
+                  f"at {elapsed:g}s")
+
+    def apply_holds(self, now):
+        remaining = []
+        for due, kind, value in self.hold_actions:
+            if now < due:
+                remaining.append((due, kind, value))
+                continue
+            if kind == "delay":
+                set_delay(0)
+            elif kind == "mode":
+                state["mode_override"] = (self.plan.mode_override()
+                                          if self.plan else None)
+                update_mode()
+                send_stream()
+            elif kind == "pattern":
+                if self.plan is not None:
+                    send_to_z(json.dumps({"t": "test", "cmd": "pattern",
+                                          "pattern": self.plan.input_pattern}))
+            elif kind == "resume":
+                self.resume()
+        self.hold_actions = remaining
+
+    def sample(self, elapsed):
+        z_stats = state.get("z_stats") or {}
+        x_stats = state.get("x_stats") or {}
+        game_state = state.get("game") or {}
+        return {
+            "t": round(elapsed, 2),
+            "wall": round(time.time(), 3),
+            "phase": self.phase,
+            "mode": state.get("mode"),
+            "paused": self.phase == "paused",
+            "rtt": round(float(state.get("rtt", 0.0)), 1),
+            "delay": round(float(state.get("delay_ms", 0.0)), 1),
+            "e2e": round(float(state.get("e2e", 0.0)), 1),
+            "rtt_zy": round(float(state.get("rtt_zy", 0.0)), 1),
+            "x_fps": round(float(state.get("x_fps", 0.0)), 1),
+            "y_fps": round(float(state.get("y_fps", 0.0)), 1),
+            "z_fps": round(float(z_stats.get("fps", 0.0)), 1),
+            "x_encode": x_stats.get("encode_p50"),
+            "z_decode": round(float(z_stats.get("decode", 0.0)), 1),
+            "tick": int(game_state.get("tick", 0)),
+            "score": int(game_state.get("score", 0)),
+            "hp": int(game_state.get("hp", 0)),
+        }
+
+
+    def pause(self, reason="panel"):
+        global paused
+        if self.phase not in ("warmup", "running"):
+            return
+        if self.phase == "paused":
+            return
+        self.phase = "paused"
+        self.pause_started = time.monotonic()
+        paused = True
+        state["paused"] = True
+        up.put(json.dumps({"t": "pause"}))
+        send_to_z(json.dumps({"t": "test", "cmd": "pause"}))
+        state["test"] = self.snapshot()
+        print(f"[{time.strftime('%X')}] test paused ({reason})")
+
+    def resume(self):
+        global paused
+        if self.phase != "paused":
+            return
+        now = time.monotonic()
+        held = max(0.0, now - (self.pause_started or now))
+        self.paused_total += held
+        if self.measure_start is not None:
+            self.measure_start += held
+        paused = False
+        state["paused"] = False
+        up.put(json.dumps({"t": "resume"}))
+        send_to_z(json.dumps({"t": "test", "cmd": "resume"}))
+        self.pause_started = None
+        self.phase = ("warmup" if self.measure_start is not None
+                      and now < self.measure_start else "running")
+        state["test"] = self.snapshot()
+        print(f"[{time.strftime('%X')}] test resumed")
+
+    def stop(self, reason="panel"):
+        global paused
+        if self.phase in ("idle", "finished", "error"):
+            return
+        self.finished_elapsed = self._elapsed()
+        self.phase = "finished"
+        self.finished_at = time.time()
+        self.reason = reason
+        paused = False
+        state["paused"] = False
+        state["playing"] = False
+        up.put(json.dumps({"t": "pause"}))
+        send_to_z(json.dumps({"t": "test", "cmd": "stop"}))
+        self.write_report(reason)
+        state["test"] = self.snapshot()
+        print(f"[{time.strftime('%X')}] test finished ({reason})")
+
+    def finish(self):
+        if self.phase == "running":
+            self.finished_elapsed = max(0.0, time.monotonic() - self.measure_start)
+        self.stop("duration")
+
+    def fail(self, message):
+        global paused
+        self.error = str(message)
+        self.phase = "error"
+        self.finished_at = time.time()
+        self.reason = "error"
+        paused = False
+        state["paused"] = False
+        state["playing"] = False
+        up.put(json.dumps({"t": "pause"}))
+        send_to_z(json.dumps({"t": "test", "cmd": "stop"}))
+        self.write_report("error")
+        state["test"] = self.snapshot()
+        print(f"[{time.strftime('%X')}] test error: {self.error}")
+
+    def write_report(self, reason):
+        if self.plan is None or self.report_id is None:
+            return None
+        ended = self.finished_at or time.time()
+        started = self.started_at or ended
+        environment = {
+            "reason": reason,
+            "thresholds": {"high_ms": C.HIGH_MS, "low_ms": C.LOW_MS,
+                           "bad_count": C.BAD_COUNT,
+                           "recover_s": C.RECOVER_S},
+            "y_version": sys.version.split()[0],
+            "video_preset": self.plan.video_preset,
+            "video_runtime": "current (Phase 1)",
+            "paused_s": round(self.paused_total, 2),
+            "game_config": getattr(game, "config", None),
+            "mode_final": state.get("mode"),
+        }
+        try:
+            report = report_mod.build(self.plan, started, ended, self.samples,
+                                      self.events, environment,
+                                      report_id=self.report_id)
+            self.report_paths = report_mod.write(self.directory, report)
+            state["reports"] = report_mod.list_reports(self.directory)
+            print(f"[{time.strftime('%X')}] test report: "
+                  f"{self.report_paths['json']}")
+            return report
+        except Exception as exc:
+            self.error = f"could not write report: {exc!r}"
+            print(self.error)
+            return None
+
+    def on_z_stats(self, stats):
+        state["z_stats"] = dict(stats)
+        if self.phase in ("starting", "warmup", "running", "paused"):
+            state["test"] = self.snapshot()
+
+    def on_game_over(self):
+        if self.phase in ("starting", "warmup", "running", "paused"):
+            self.stop("game over")
+
+
 async def z_handler(ws):
     global game, last_fwd, bad, good_since, paused, y_force_key
-    slot = {"queue": collections.deque(), "ev": asyncio.Event(), "h264": False}
+    slot = {"queue": collections.deque(), "ev": asyncio.Event(),
+            "h264": False, "ctl": collections.deque()}
     lock = asyncio.Lock()
     zs[ws] = slot
     sender = asyncio.create_task(z_sender(ws, slot, lock))
@@ -297,10 +720,15 @@ async def z_handler(ws):
                       f"workload={workload} seed={seed} "
                       f"hp={game.player.max_hp} bots={game.workload.bots} "
                       f"obstacles={game.workload.obstacles}")
+                if test_runner is not None:
+                    test_runner.on_game_start()
                 continue
             inp["keys"], inp["seq"] = m["keys"], m["n"]
             state["e2e"] = m.get("e2e", 0.0)
             state["rtt_zy"] = m.get("rzy", state["rtt_zy"])
+            if "fps" in m or "decode" in m:
+                state["z_stats"] = {"fps": float(m.get("fps", 0.0)),
+                                    "decode": float(m.get("decode", 0.0))}
             if m.get("want_idr"):               # Z lost a frame: recover immediately
                 if state["mode"] == "Y" and y_encoder is not None:
                     y_force_key = True          # we are the sender in fallback
@@ -321,17 +749,64 @@ async def z_handler(ws):
 
 
 async def dash_handler(ws):
+    panel = False
+
     async def tx():
         while True:
             await ws.send(json.dumps(state))
             await asyncio.sleep(0.2)
+
     t = asyncio.create_task(tx())
     try:
-        async for m in ws:
-            ms = float(json.loads(m)["delay_ms"])
-            state["delay_ms"] = ms
-            if up is not None and down is not None:
-                up.delay = down.delay = ms / 2000      # one-way = RTT / 2
+        async for raw in ws:
+            try:
+                m = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(m, dict):
+                continue
+            if m.get("cmd") == "hello":
+                panel = True
+                await ws.send(json.dumps({"t": "hello",
+                                          "reports": state.get("reports", [])}))
+                continue
+            if "delay_ms" in m and "cmd" not in m:
+                set_delay(m["delay_ms"])
+                continue
+            cmd = m.get("cmd")
+            try:
+                if cmd == "test_start":
+                    if test_runner is None:
+                        raise RuntimeError("test runner is not ready")
+                    await test_runner.start(m.get("plan") or {})
+                elif cmd == "test_pause":
+                    if test_runner is not None:
+                        test_runner.pause("panel")
+                elif cmd == "test_resume":
+                    if test_runner is not None:
+                        test_runner.resume()
+                elif cmd == "test_stop":
+                    if test_runner is not None:
+                        test_runner.stop("panel")
+                elif cmd == "set_plan":
+                    if test_runner is None:
+                        raise RuntimeError("test runner is not ready")
+                    test_runner.set_plan(m.get("plan") or {})
+                elif cmd == "list_reports":
+                    await ws.send(json.dumps({"t": "reports",
+                                              "reports": state.get("reports", [])}))
+                elif cmd == "get_report":
+                    report = report_mod.load(REPORT_DIR, m.get("id"))
+                    await ws.send(json.dumps({"t": "report", "report": report}))
+                elif cmd == "delay_ms":
+                    set_delay(m.get("delay_ms", 0))
+                else:
+                    raise ValueError(f"unknown command {cmd!r}")
+            except (PlanError, ValueError, OSError, RuntimeError) as exc:
+                await ws.send(json.dumps({"t": "error", "command": cmd,
+                                          "message": str(exc)}))
+                if not panel:
+                    print(f"dashboard command failed ({cmd}): {exc}")
     finally:
         t.cancel()
 
@@ -366,8 +841,11 @@ async def x_session():
 
 
 async def main():
-    global up, down, log_f, log_w, y_encoder, y_force_key
+    global up, down, log_f, log_w, y_encoder, y_force_key, test_runner
     os.makedirs("logs", exist_ok=True)
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    test_runner = TestRunner(REPORT_DIR)
+    state["reports"] = report_mod.list_reports(REPORT_DIR)
     log_f = open(os.path.join("logs", "log_y.csv"), "w", newline="")
     log_w = csv.writer(log_f)
     log_w.writerow(["unix_time", "mode", "rtt_ms", "injected_delay_ms",

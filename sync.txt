@@ -1,6 +1,6 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-19 17:05 +09:00   (from Y / home PC)
+Last updated : 2026-11-19 17:45 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
@@ -679,6 +679,34 @@ HEAD   : 7d54592  "Phase B: keyframe storm fix, VBV, 120 Hz, threaded decode"
   Validation: the temp config loads as max_hp=1000 / damage 0 / light; the
   default repo config is still max_hp=100 / damage 5; unittest 14 tests OK;
   selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
+
+[2026-11-19 17:45 +09:00 | from Y — Phase 1: test runner protocol, Z test mode, reports]
+  Added:
+    - common/testplan.py: TestPlan/Event validation, presets, timeline segments,
+      p50/p90/p99 summaries.
+    - common/report.py: logs/reports/<id>.json + .csv, newest-first history, safe load.
+    - y_gateway.py: TestRunner (start / warm-up / measure / pause / resume / stop),
+      dashboard commands (test_start, test_pause, test_resume, test_stop, set_plan,
+      list_reports, get_report), timeline delay/mode events through DelayLine,
+      Z control queue, X/Y FPS windows, automatic report on finish.
+    - z_client.py: FYP_TEST=1 mode (no menu), test start/pause/resume/stop/pattern,
+      scripted input patterns, TEST overlay, FPS/decode stats in input messages.
+    - tools/test_cli.py + tools/plans/phase1_smoke.json; tests/test_testplan.py,
+      tests/test_report.py; README "Test Control Panel (Phase 1)".
+
+  Smoke (isolated ports 9000-9002, temp cwd, 960x540 X, SDL dummy Z):
+    2 s warm-up + 10 s measure, 100 ms delay at 2-5 s, 2 s pause, pattern shoot at 8 s.
+    Report: e2e p50 15.6 / p90 119.6 ms; RTT p50 3.8 / p90 105.8 ms;
+    X/Y ~60 fps; Z 59.7 fps. Pause/resume, timeline delay, auto-finish and
+    report download path verified.
+
+  IMPORTANT: the live home PC currently has TWO Y processes (PIDs 2876 and
+    22292; 22292 owns 8000/8002) and TWO Z processes (PIDs 31848 and 22252).
+    This is the duplicate-process problem again and it invalidates the current
+    A0. Kill the duplicates, start ONE Y/Z pair, and re-run A0 before trusting
+    Phase A data.
+
+  Next: Phase 2 Tk panel; Phase 3 X stats/stop/runtime video after Phase A.
 
 END OF SYNC
 
