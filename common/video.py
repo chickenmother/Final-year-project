@@ -11,12 +11,14 @@ import av
 class H264Encoder:
     """Low-latency H.264 encoder (libx264 by default, optional hardware)."""
 
-    def __init__(self, size, fps, bitrate=1_000_000, gop=10, encoder=None):
+    def __init__(self, size, fps, bitrate=1_000_000, gop=10, encoder=None,
+                 intra_refresh=False):
         self.size = size
         self.fps = max(1, int(fps))
         self.bitrate = int(bitrate)
         self.gop = max(1, int(gop))
         self.encoder = (encoder or "libx264").lower()
+        self.intra_refresh = bool(intra_refresh)
         self.pts = 0
         self.force_next_keyframe = False
         self.codec = None
@@ -28,8 +30,20 @@ class H264Encoder:
         # libx264 is the default because QSV at 1080p was ~32 ms/frame on the
         # test laptop; libx264 ultrafast was ~2 ms/frame. Hardware encoders can
         # be selected with FYP_X_ENCODER / FYP_Y_ENCODER.
+        #
+        # scenecut=0 is important for jitter: by default x264 inserts an IDR at
+        # every scene change, which in this game means 100-200 KB keyframe
+        # bursts several times per second. A fixed long GOP plus IDR-on-request
+        # keeps the frame sizes smooth.
+        kbps = max(100, self.bitrate // 1000)
+        x264_params = (f"scenecut=0:keyint={self.gop}:min-keyint={self.gop}"
+                       f":bframes=0:rc-lookahead=0:ipratio=1.1"
+                       f":vbv-maxrate={kbps}:vbv-bufsize={max(100, kbps // 2)}")
+        if self.intra_refresh:
+            x264_params += ":intra-refresh=1"
         available = {
-            "libx264": ("yuv420p", {"preset": "ultrafast", "tune": "zerolatency"}),
+            "libx264": ("yuv420p", {"preset": "ultrafast", "tune": "zerolatency",
+                                    "x264-params": x264_params}),
             "h264_qsv": ("nv12",
                          {"async_depth": "1", "low_delay_brc": "1",
                           "preset": "veryfast"}),

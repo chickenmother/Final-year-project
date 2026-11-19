@@ -20,9 +20,9 @@ log_f = log_w = None
 n_logged = 0
 
 
-def log_frame(tick, seq, codec, encode_ms, nbytes):
+def log_frame(tick, seq, codec, key, encode_ms, nbytes):
     global n_logged
-    log_w.writerow([round(time.time(), 3), tick, seq, codec,
+    log_w.writerow([round(time.time(), 3), tick, seq, codec, int(bool(key)),
                     round(encode_ms, 1), nbytes])
     n_logged += 1
     if n_logged % 30 == 0:
@@ -144,14 +144,14 @@ async def handler(ws):
                         await send(json.dumps({"t": "game_over",
                                                "score": game.score,
                                                "deaths": game.deaths}))
-                    # if we are behind (inputs waiting), skip rendering so we catch up fast
-                    if (not game.game_over and game.tick % C.X_STREAM_EVERY == 0
-                            and streaming and len(q) >= 3):
-                        out["need_key"] = True      # skipped frame: make the next one an IDR
-                    if (not game.game_over and game.tick % C.X_STREAM_EVERY == 0
-                            and streaming and len(q) < 3):
+                    # render + encode costs ~6.5 ms at 720p/60 on the reference
+                    # machine, so render every stream tick. Skipping a tick used
+                    # to force an IDR, which caused 100-200 KB keyframe bursts
+                    # and the latency/jitter spikes.
+                    if not game.game_over and game.tick % C.X_STREAM_EVERY == 0 and streaming:
                         seq = m["seq"]
                         t0 = time.perf_counter()
+                        is_key = True
                         if x_encoder is not None and z_h264:
                             try:
                                 frame = game.render_surface(C.X_SIZE, True)
@@ -159,9 +159,10 @@ async def handler(ws):
                                     x_encoder.force_keyframe()
                                     force_key = out["need_key"] = False
                                 packets = x_encoder.encode_surface(frame)
-                                nbytes, codec = 0, "h264"
+                                nbytes, codec, is_key = 0, "h264", False
                                 for payload, key in packets:
                                     nbytes += len(payload)
+                                    is_key = is_key or key
                                     out["queue"].append(
                                         b"x" + bytes([1 if key else 0])
                                         + struct.pack("!II", game.tick, seq) + payload)
@@ -176,13 +177,13 @@ async def handler(ws):
                                 jpg = game.render(C.X_SIZE, C.X_QUALITY)
                                 out["jpeg"] = b"X" + struct.pack("!II", game.tick, seq) + jpg
                                 out["ev"].set()
-                                nbytes, codec = len(jpg), "jpeg"
+                                nbytes, codec, is_key = len(jpg), "jpeg", True
                         else:
                             jpg = game.render(C.X_SIZE, C.X_QUALITY)
                             out["jpeg"] = b"X" + struct.pack("!II", game.tick, seq) + jpg
                             out["ev"].set()
-                            nbytes, codec = len(jpg), "jpeg"
-                        log_frame(game.tick, seq, codec,
+                            nbytes, codec, is_key = len(jpg), "jpeg", True
+                        log_frame(game.tick, seq, codec, is_key,
                                   (time.perf_counter() - t0) * 1000, nbytes)
                 elif m["tick"] > game.tick + 1 and (not resync or time.monotonic() - need_at > 2.0):
                     resync, need_at = True, time.monotonic()
@@ -199,15 +200,18 @@ async def main():
     os.makedirs("logs", exist_ok=True)
     log_f = open(os.path.join("logs", "log_x.csv"), "w", newline="")
     log_w = csv.writer(log_f)
-    log_w.writerow(["unix_time", "tick", "seq", "codec", "encode_ms", "frame_bytes"])
+    log_w.writerow(["unix_time", "tick", "seq", "codec", "key",
+                    "encode_ms", "frame_bytes"])
 
     if C.X_CODEC == "h264" and H264Encoder is not None:
         try:
             x_encoder = H264Encoder(C.X_SIZE, C.X_FPS, C.X_BITRATE, C.X_GOP,
-                                    encoder=C.X_ENCODER)
+                                    encoder=C.X_ENCODER,
+                                    intra_refresh=C.X_INTRA_REFRESH)
             print(f"X video encoder: H.264 via {x_encoder.name} "
                   f"({C.X_SIZE[0]}x{C.X_SIZE[1]} @ {C.X_FPS} fps, "
-                  f"{C.X_BITRATE} bps, GOP {C.X_GOP})")
+                  f"{C.X_BITRATE} bps, GOP {C.X_GOP}, "
+                  f"intra-refresh={'on' if C.X_INTRA_REFRESH else 'off'})")
         except Exception as exc:
             print(f"X video encoder: H.264 unavailable ({exc}); using JPEG")
             x_encoder = None

@@ -59,7 +59,15 @@ X_CODEC = os.environ.get("FYP_X_CODEC", "h264").lower()
 X_ENCODER = os.environ.get("FYP_X_ENCODER", "libx264").lower()
 # 4 Mbps is a safer default on a WAN; raise it for a LAN-only demo.
 X_BITRATE = int(os.environ.get("FYP_X_BITRATE", "4000000"))
-X_GOP = int(os.environ.get("FYP_X_GOP", "30"))
+# 120 frames = 2 s at 60 fps. A long GOP keeps the 100-200 KB keyframe bursts
+# rare; IDR-on-request still recovers a dropped frame within one RTT.
+X_GOP = int(os.environ.get("FYP_X_GOP", "120"))
+
+# Experimental: x264 intra-refresh removes periodic IDR bursts entirely
+# (max frame ~50 KB instead of ~120-220 KB). It has no periodic keyframe, so
+# End Z must be started with the same FYP_X_INTRA_REFRESH=1 to keep decoding
+# through a gap instead of waiting for a keyframe.
+X_INTRA_REFRESH = os.environ.get("FYP_X_INTRA_REFRESH", "0") == "1"
 
 WIN_W, WIN_H = _pair("FYP_WIN_SIZE", "1280x720")      # window on Z
 X_SIZE = _pair("FYP_X_SIZE", "1280x720")              # cloud X capture size
@@ -73,6 +81,10 @@ HIGH_MS = float(os.environ.get("FYP_HIGH_MS", "80"))
 LOW_MS = float(os.environ.get("FYP_LOW_MS", "50"))
 BAD_COUNT = int(os.environ.get("FYP_BAD_COUNT", "3"))         # bad pings before switching to Y
 RECOVER_S = float(os.environ.get("FYP_RECOVER_S", "3.0"))     # time below LOW_MS to go back to X
+
+# Z input sampling rate. 120 Hz halves the average age of a key press at the
+# next 60 Hz simulation tick (the input itself is a key state, not an event).
+Z_INPUT_HZ = max(1, int(os.environ.get("FYP_Z_INPUT_HZ", "120")))
 
 # Z measures the Z<->Y hop by sending {"pts": <clock>} every N input messages; Y echoes it.
 Z_PING_EVERY = int(os.environ.get("FYP_Z_PING_EVERY", "6"))

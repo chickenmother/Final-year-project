@@ -32,7 +32,8 @@ async def main():
     os.makedirs("logs", exist_ok=True)
     log_f = open(os.path.join("logs", "log_z.csv"), "w", newline="")
     log = csv.writer(log_f)
-    log.writerow(["unix_time", "source", "codec", "tick", "e2e_ms", "rtt_zy_ms"])
+    log.writerow(["unix_time", "source", "codec", "tick", "first",
+                  "e2e_ms", "decode_ms", "rtt_zy_ms"])
 
     sent, st = {}, {"e2e": 0.0, "rzy": 0.0, "want_idr": False,
                     "game_over": False, "score": 0, "deaths": 0,
@@ -56,6 +57,7 @@ async def main():
     async def input_loop(ws):
         nonlocal seq, pending_space
         nxt = time.monotonic()
+        ping_every = max(1, C.Z_PING_EVERY * max(1, C.Z_INPUT_HZ // C.TICK_RATE))
         while pump_events() and not st["game_over"]:
             if st.pop("pause_requested", False):
                 await ws.send(json.dumps({"t": "pause"}))
@@ -84,14 +86,14 @@ async def main():
             pending_space = False
             seq += 1
             sent[seq] = time.monotonic()
-            sent.pop(seq - 600, None)
+            sent.pop(seq - C.Z_INPUT_HZ * 10, None)   # keep ~10 s of history
             msg = {"keys": keys, "n": seq, "e2e": st["e2e"], "rzy": round(st["rzy"], 1)}
             if st.pop("want_idr", False):        # the decoder lost its reference
                 msg["want_idr"] = True
-            if seq % C.Z_PING_EVERY == 0:        # probe the Z<->Y hop a few times per second
+            if seq % ping_every == 0:            # ~10 probes/s, independent of input rate
                 msg["pts"] = time.monotonic()
             await ws.send(json.dumps(msg))
-            nxt += 1 / C.TICK_RATE
+            nxt += 1 / C.Z_INPUT_HZ
             await asyncio.sleep(max(0, nxt - time.monotonic()))
 
     async def receiver(ws):
@@ -102,6 +104,7 @@ async def main():
         dec_src = None
         need_key = True                          # wait for an IDR before decoding P-frames
         last_tick = None
+        last_seq = None
         fps_count, fps_t0, fps_value = 0, None, None
         async for msg in ws:
             if isinstance(msg, str):
@@ -137,12 +140,25 @@ async def main():
                         st["want_idr"] = True    # a frame was dropped: ask for an IDR
                     need_key = True              # do not draw until a clean reference arrives
                 last_tick = tick
+                if C.X_INTRA_REFRESH and src == "x":
+                    # Intra-refresh has no periodic IDR. Keep decoding through
+                    # a gap and let the rolling refresh repair the picture.
+                    need_key = False
                 if need_key and not keyframe:
                     continue
                 if keyframe:
                     need_key = False
-                    decoder.reset()
-                frames = decoder.decode(payload)
+                    # With intra-refresh x264 still flags some refresh points as
+                    # keyframes; resetting the decoder there loses the rolling
+                    # reference and freezes half the frames. Only reset for a
+                    # normal GOP stream.
+                    if not (C.X_INTRA_REFRESH and src == "x"):
+                        decoder.reset()
+                t_dec = time.perf_counter()
+                # Decode off the event loop so the 120 Hz input sampler keeps
+                # running while a 720p frame is decoded.
+                frames = await asyncio.to_thread(decoder.decode, payload)
+                decode_ms = (time.perf_counter() - t_dec) * 1000
                 if not frames:
                     continue
                 pil = frames[-1]
@@ -152,7 +168,11 @@ async def main():
                 # JPEG: source | tick | seq | payload
                 codec = "jpeg"
                 tick, s = struct.unpack("!II", msg[1:9])
+                t_dec = time.perf_counter()
                 img = pygame.image.load(io.BytesIO(msg[9:]), "f.jpg")
+                decode_ms = (time.perf_counter() - t_dec) * 1000
+            first = 1 if s != last_seq else 0
+            last_seq = s
             if img.get_size() != (C.WIN_W, C.WIN_H):
                 img = pygame.transform.scale(img, (C.WIN_W, C.WIN_H))
             last_frame = img
@@ -160,9 +180,10 @@ async def main():
             t0 = sent.get(s)
             if t0:
                 ms = (time.monotonic() - t0) * 1000
-                st["e2e"] = ms if not st["e2e"] else 0.9 * st["e2e"] + 0.1 * ms
-                log.writerow([round(time.time(), 3), src, codec, tick, round(ms, 1),
-                              round(st["rzy"], 1)])
+                if first:       # only the first frame for an input is the real latency
+                    st["e2e"] = ms if not st["e2e"] else 0.9 * st["e2e"] + 0.1 * ms
+                log.writerow([round(time.time(), 3), src, codec, tick, first,
+                              round(ms, 1), round(decode_ms, 1), round(st["rzy"], 1)])
             nframes += 1
             fps_count += 1
             now = time.monotonic()

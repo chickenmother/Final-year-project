@@ -461,9 +461,14 @@ render bytes: <X bytes> (X) <Y bytes> (Y)
 The **hash must be identical on both machines** and `resync OK` must be printed — that is what guarantees Y can take over from X without a visible state jump. Compare the `host`/version lines too: a different Python version is the most likely reason for a hash mismatch.
 
 For a quick X-side capacity check, start X alone, play for a minute, then look at
-`logs/log_x.csv`: `encode_ms` is the render + encode cost and `frame_bytes` is the encoded size.
-On the reference machine (libx264 ultrafast) H.264 averages ~4–10 KB per frame at 720p/60 fps,
-i.e. **~2–5 Mbps** against the 4 Mbps target; JPEG mode is ~40–60 KB/frame (~20–30 Mbps).
+`logs/log_x.csv`: `encode_ms` is the render + encode cost, `frame_bytes` the encoded size, and
+`key` marks IDR frames. On the reference machine (libx264 ultrafast, GOP 120, VBV) render+encode is
+**~5–6 ms** at 720p/60, average bitrate **~3–4 Mbps**, and keyframes are **~100–120 KB**.
+Without the VBV/ipratio settings a 720p keyframe reaches 200–250 KB.
+
+A keyframe must fit the uplink's burst budget: 120 KB at 20 Mbps is ~48 ms, which is exactly the
+periodic hitch users see. GOP 120 makes those bursts rare (0.5/s); `FYP_X_INTRA_REFRESH=1` removes
+them entirely (max frame ~20–50 KB).
 
 ## Output & Logs
 
@@ -477,6 +482,7 @@ All three logs are written to the **`logs/` directory** beside the scripts and a
 | `tick` | game tick in the frame header |
 | `seq` | input sequence number carried in the frame header |
 | `codec` | `h264` or `jpeg` for the frame that was sent |
+| `key` | `1` if the frame is an IDR/keyframe, `0` otherwise |
 | `encode_ms` | time spent rendering + encoding the frame |
 | `frame_bytes` | encoded payload size (H.264 access unit or JPEG) |
 
@@ -500,8 +506,14 @@ All three logs are written to the **`logs/` directory** beside the scripts and a
 | `source` | tier that produced the frame (`X` or `Y`) |
 | `codec` | `h264` or `jpeg` |
 | `tick` | game tick carried in the frame header |
+| `first` | `1` for the first frame carrying this input seq, `0` for a repeat |
 | `e2e_ms` | input→display latency in milliseconds |
+| `decode_ms` | time spent decoding the frame off the event loop (H.264) |
 | `rtt_zy_ms` | current Z↔Y round-trip time measured by the probe loop |
+
+Only `first=1` rows should be used for latency statistics: when X renders several frames for the
+same input seq (e.g. paused input), the repeats show the same state and would inflate the p50.
+The `e2e_ms` sent to Y and shown on the dashboard is updated only on `first=1` frames.
 
 Y flushes its file on every sample; Z flushes every 30 frames.
 
@@ -541,7 +553,8 @@ Network and streaming tunables live in `common/config.py`:
 | `X_CODEC` | `FYP_X_CODEC` | `h264` | `h264` or `jpeg` for the cloud stream |
 | `X_ENCODER` | `FYP_X_ENCODER` | `libx264` | `libx264`, `h264_nvenc`, or `h264_qsv` |
 | `X_BITRATE` | `FYP_X_BITRATE` | `4000000` | target H.264 bitrate in bits/s (4 Mbps is a safer WAN default) |
-| `X_GOP` | `FYP_X_GOP` | `30` | keyframe interval in frames |
+| `X_GOP` | `FYP_X_GOP` | `120` | keyframe interval in frames (2 s at 60 fps); scene-cut IDRs are disabled, IDR on request recovers a drop |
+| `X_INTRA_REFRESH` | `FYP_X_INTRA_REFRESH` | off | experimental: no periodic IDR, max frame ~20–50 KB. **Set the same value on Z** |
 | `X_FPS` | — | `TICK_RATE // X_STREAM_EVERY` | frames per second X encodes |
 | `Y_SIZE` | `FYP_Y_SIZE` (`960x540`) | `(960, 540)` | Edge Y capture size |
 | `Y_QUALITY` | `FYP_Y_QUALITY` | `55` | Edge Y JPEG quality (used only when H.264 is unavailable) |
@@ -553,7 +566,8 @@ Network and streaming tunables live in `common/config.py`:
 | `LOW_MS` | `FYP_LOW_MS` | `50` | RTT below which recovery can begin (Y → X) |
 | `BAD_COUNT` | `FYP_BAD_COUNT` | `3` | consecutive bad samples before switching to Y |
 | `RECOVER_S` | `FYP_RECOVER_S` | `3.0` | seconds below `LOW_MS` before switching back to X |
-| `Z_PING_EVERY` | `FYP_Z_PING_EVERY` | `6` | Z sends a Z↔Y latency probe every Nth input |
+| `Z_INPUT_HZ` | `FYP_Z_INPUT_HZ` | `120` | Z input sampling rate; halves the age of a key press at the next 60 Hz tick |
+| `Z_PING_EVERY` | `FYP_Z_PING_EVERY` | `6` | Z sends a Z↔Y latency probe every Nth input (scaled to ~10/s) |
 
 ### Tune for your network
 
@@ -644,6 +658,12 @@ unavailable. If a link still cannot cope, set `FYP_X_STREAM_EVERY=2` (30 fps) **
 or lower `FYP_X_BITRATE`/`FYP_X_SIZE`. While Y is in fallback, X stops sending video entirely
 until the mode returns to `CLOUD X`. On a mobile hotspot, prefer short runs.
 
+The average bitrate is only half the story: a single 720p keyframe is ~100–120 KB with the VBV cap.
+At a 20 Mbps uplink that is a 40–50 ms burst, so keyframes — not the average — set the p95/p99
+latency. The defaults use GOP 120 (0.5 keyframes/s); `FYP_X_INTRA_REFRESH=1` on **X and Z** removes
+the periodic IDR entirely (max frame ~20–50 KB). That is the recommended setting when the uplink
+is the jitter bottleneck.
+
 ### Experiment design for a WAN
 
 - Measure the X↔Y baseline at slider 0 (`rtt_ms`), then fix `FYP_HIGH_MS`/`FYP_LOW_MS` for all runs.
@@ -672,6 +692,8 @@ until the mode returns to `CLOUD X`. On a mobile hotspot, prefer short runs.
 | Z window never appears, but the terminal is running | `SDL_VIDEODRIVER=dummy` was inherited from a test shell, or an old X/Y is holding the ports | Re-run `run_local.cmd` (it clears SDL and stale FYP processes); for a manual Z start, run `set SDL_VIDEODRIVER=` first |
 | Frame rate drops, `encode_ms` consistently above ~16 ms in `logs/log_x.csv` | X's render+encode is the bottleneck | Set `X_STREAM_EVERY=2` (30 fps) **on X and Z**, or lower `X_SIZE`/`X_QUALITY` |
 | Z shows ~3 fps or only keyframes in `EDGE Y` | `FYP_Y_STREAM_EVERY` differs between Y and Z, so Z treats every normal 2-tick frame as a lost frame | Use the same `FYP_Y_STREAM_EVERY` (and `FYP_X_STREAM_EVERY`) on the encoding tier and on Z |
+| Periodic 50 fps hitch / latency spike every ~2 s | A 100–120 KB keyframe burst exceeds the uplink's frame budget | Keep GOP 120 + VBV (default), try `FYP_X_SIZE=960x540`, or `FYP_X_INTRA_REFRESH=1` on **X and Z** |
+| Intra-refresh: Z freezes after a gap | Z is not started with `FYP_X_INTRA_REFRESH=1`, so it waits for a keyframe that never comes | Restart Z with the same value as X; it then keeps decoding through a gap |
 | Many X↔Y switches with a ~30 ms baseline | Default 80/50 thresholds are too tight for a WAN, and the cloud stream is saturating the link | Calibrate `FYP_HIGH_MS` ≈ p50 + 35, `FYP_LOW_MS` ≈ p50 + 15, raise `FYP_BAD_COUNT`; lower `FYP_X_BITRATE` on X |
 
 Keep the machines awake for the demo (`powercfg /change standby-timeout-ac 0`) and, if you will
@@ -694,8 +716,9 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
   there is one game instance per Y.
 - **Fixed encoding settings.** X and Y use H.264 at a fixed target bitrate/GOP
   (`FYP_X_BITRATE`/`FYP_X_GOP`, `FYP_Y_BITRATE`/`FYP_Y_GOP`) with JPEG fallback; there is no
-  adaptive bitrate or congestion control. A dropped frame is repaired by the next keyframe, or
-  sooner when Z requests an IDR.
+  adaptive bitrate or congestion control. X additionally uses a VBV buffer (`0.5 s`), no scene-cut
+  IDRs, and optionally intra-refresh. A dropped frame is repaired by the next keyframe, or sooner
+  when Z requests an IDR.
 
 ---
 

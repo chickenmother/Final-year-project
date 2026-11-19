@@ -1,10 +1,10 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-19 15:50 +09:00   (from X)
+Last updated : 2026-11-19 16:40 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
-HEAD   : 2640bf2  "Harden config loading ..."   (code; this update is the next commit)
+HEAD   : 4f189b9  "Fix EDGE Y frame pacing ..."   (code; this update is the next commit)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
@@ -599,6 +599,50 @@ HEAD   : 2640bf2  "Harden config loading ..."   (code; this update is the next c
     4) X now defaults to 4 Mbps. Raise FYP_X_BITRATE only if the link is clean.
     5) If X's logs/log_x.csv shows encode_ms p95 above ~12 ms, set
        FYP_X_STREAM_EVERY=2 on X AND Z (30 fps).
+
+[2026-11-19 16:40 +09:00 | from Y — Phase B: keyframe storm fix, 120 Hz input, threaded decode]
+  Changes in this commit:
+    - x_server: removed the len(q) < 3 skip and the need_key-on-skip. X now
+      renders every stream tick (encode is ~5.5 ms at 720p/60), so there are
+      no tick gaps and no forced IDRs from a backlog. log_x.csv gains a
+      `key` column (1 = IDR/keyframe).
+    - common/video.py: libx264 now uses scenecut=0, fixed keyint/min-keyint
+      = GOP, bframes=0, rc-lookahead=0, ipratio=1.1 and a VBV cap
+      (maxrate=bitrate, bufsize=bitrate/2). Optional intra-refresh.
+    - common/config.py: X_GOP default 30 -> 120; Z_INPUT_HZ=120
+      (FYP_Z_INPUT_HZ); X_INTRA_REFRESH (FYP_X_INTRA_REFRESH, default off).
+    - z_client.py: input sampling at 120 Hz (10 s sent history), H.264
+      decode in asyncio.to_thread, log_z.csv gains `first` and `decode_ms`,
+      and e2e/dashboard update only on the first frame per input seq.
+      Intra-refresh streams are decoded continuously (no decoder reset on
+      x264's small refresh "keyframe" flags).
+
+  Local verification (X+Y+Z on one PC, light workload, isolated cwd and
+  ports 9000-9002 so the live tiers were untouched):
+    - GOP120 + VBV: 60.2 fps, 0 skipped ticks, 6 keyframes in 11 s
+      (0.55/s) of 97-117 KB, encode p50 5.5 ms, Z first e2e p50 13.1 ms,
+      decode p50 3.9 ms.
+    - intra-refresh: 60.3 fps, 0 skipped ticks, max frame 17 KB, first
+      e2e 16.5 ms, decode 3.6 ms.
+    - The previous lab-X log (4f189b9, skip-IDR) had 3-5 keyframes/s of
+      100-200 KB and p50 90 / p90 142 ms. The keyframe size, not the
+      average bitrate, was causing the p90/jitter.
+
+  Required:
+    1) Home Y and Z: pull this commit and RESTART both tiers; the running
+       processes still have the old code.
+    2) Lab X: do NOT pull until the Cloud X Phase A tests (A0/A1/A2) on
+       4f189b9 are finished. Then pull, restart, and re-run A1/A2 with the
+       new code (default GOP 120, no skip-IDR, VBV).
+    3) Keep FYP_X_STREAM_EVERY and FYP_X_INTRA_REFRESH identical on X and Z
+       (Z needs them to interpret the frame stride and intra-refresh gaps).
+    4) X_GOP now defaults to 120. The A0 baseline from Phase A was GOP 30;
+       set FYP_X_GOP=30 explicitly if you want to reproduce that exact run.
+    5) If the lab uplink is the jitter bottleneck, test
+       FYP_X_INTRA_REFRESH=1 on X and Z: max frame ~20-50 KB, no periodic
+       IDR. A new Z gets an IDR through the caps handshake.
+
+  Next: remote measurement with the lab X after its Phase A tests.
 
 END OF SYNC
 
