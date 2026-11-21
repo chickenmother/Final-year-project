@@ -1,6 +1,6 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-21 11:17 +09:00   (from Y / home PC)
+Last updated : 2026-11-21 11:25 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
@@ -727,6 +727,23 @@ HEAD   : 7d54592  "Phase B: keyframe storm fix, VBV, 120 Hz, threaded decode"
   Note: the live home PC still has duplicate Y/Z processes
   (PIDs 2876/22292 Y, 31848/22252 Z). Kill all but one pair before any
   Phase A or test-panel run.
+
+[2026-11-21 11:25 +09:00 | from Y — architecture direction: task-level placement]
+  README Architecture now separates:
+    - Baseline whole-pipeline (implemented): X A-E + render/stream, Y proxy/
+      fallback, Z input/display.
+    - Task model A-E (simulation / AI / hit registration / render / encode),
+      L leaderboard pinned to X, U UI local to Z. F-K and M-T are reserved for
+      future task splits; the semantic task count is not fixed.
+    - Placement patterns (planned): All Cloud, Offload A/B, All Edge, Pinned L;
+      the legacy whole-pipeline remains the comparison mode.
+    - Pattern axes: placement pattern vs legacy mode vs video preset vs
+      workload / input / delay timeline.
+    - Implementation status: A-E + U partial; L, router, placement table and
+      local A/B copies planned; Phase 2 Tk panel; Phase 3 X runtime video.
+
+  docs/test-panel.md now marks `mode` as legacy and `placement` as planned.
+  No code changes. Lab X remains pinned to 4f189b9; do NOT pull on X.
 
 END OF SYNC
 

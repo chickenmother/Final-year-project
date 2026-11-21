@@ -9,7 +9,7 @@
 | **Institution** | Kyushu Sangyo University, Department of Information Science |
 | **Programme** | Final Year Project |
 | **Academic Year** | 2025/2026 |
-| **Status** | Working prototype — Python 3.13.9 on Windows; Phase 1 test runner/CLI shipped, Phase 2 Tk panel next |
+| **Status** | Working prototype — Python 3.13.9 on Windows; Phase 1 test runner/CLI shipped; task-level placement (patterns/router/L) planned; Phase 2 Tk panel next |
 
 A final year project modelling a **3-tier vertical cloud gaming architecture** — **End Node (Z) → Middle Edge Gateway (Y) → Cloud Server (X)** — under simulated network latency degradation.
 
@@ -18,6 +18,8 @@ Cloud gaming's main weakness is latency: every frame is rendered far away and mu
 ---
 
 ## Architecture
+
+### Baseline (implemented)
 
 ```
 End Node (Z)  ──►  Middle Edge Gateway (Y)  ──►  Cloud Server (X)
@@ -28,13 +30,13 @@ End Node (Z)  ──►  Middle Edge Gateway (Y)  ──►  Cloud Server (X)
 
 | Tier | Process | Endpoint | Role |
 |------|---------|----------|------|
-| **Cloud X** | `x_server.py` | `ws://X_IP:8001` | Authoritative game-state execution engine; renders 1280×720 and streams H.264 (x264/NVENC/QSV) with JPEG fallback |
-| **Middle Y** | `y_gateway.py` | `ws://Y_IP:8000` (to Z)<br>`ws://Y_IP:8002` (dashboard/test) | Decision proxy + sequencer, local fallback renderer (H.264), RTT monitor, dashboard backend, test runner |
-| **End Z** | `z_client.py` | connects to `ws://Y_IP:8000` | User input sampler (120 Hz), latency monitor, displays received footage; `FYP_TEST=1` runs scripted input patterns |
+| **Cloud X** | `x_server.py` | `ws://X_IP:8001` | **Baseline:** A–E game engine, 1280×720 H.264 render/stream (JPEG fallback). Planned: pinned L; in Offload/All Edge it may run only C–E or L |
+| **Middle Y** | `y_gateway.py` | `ws://Y_IP:8000` (to Z)<br>`ws://Y_IP:8002` (dashboard/test) | **Baseline:** decision proxy, sequencer, full A–E fallback, RTT/dashboard/test runner. Planned: task router/placement table + local A/B copies |
+| **End Z** | `z_client.py` | connects to `ws://Y_IP:8000` | **Baseline:** input sampler (120 Hz), latency monitor, display. U (menu/overlay/leaderboard) is local to Z; leaderboard view planned |
 
-Input travels **up** the chain (Z → Y → X) and video travels **down** (X → Y → Z). Z contains no game logic and no image assets — it only samples input and blits frames. X and Y run the same deterministic runtime core (`game/simulation.py`), which is what makes the fallback seamless. `common/game.py` is the legacy deterministic game kept only as the `selftest.py` cross-tier oracle.
+Input travels **up** the chain (Z → Y → X) and video travels **down** (X → Y → Z). This is the **whole-pipeline baseline**. The task-level patterns below move individual tasks (A–E) between X and Y, while **U stays on Z** and **L is pinned to X**. Z contains no game logic and no image assets — it only samples input and blits frames. X and Y run the same deterministic runtime core (`game/simulation.py`), which is what makes the fallback seamless. `common/game.py` is the legacy deterministic game kept only as the `selftest.py` cross-tier oracle.
 
-### Message flow
+#### Message flow
 
 1. **Input up** — every tick, Z sends JSON `{"keys": "...", "n": <seq>, "e2e": <ms>, "fps": ..., "decode": ...}` to Y.
 2. **Sequencing** — Y advances its own copy of the game, then forwards `{"t":"in","tick":<n>,"keys":"...","seq":<n>}` to X. X only steps when `tick == game.tick + 1`; a larger jump triggers `need_snap` and a full state resync.
@@ -42,12 +44,80 @@ Input travels **up** the chain (Z → Y → X) and video travels **down** (X →
 4. **Telemetry** — Y pings X and pushes dashboard state every 0.2 s. Z measures the **Z↔Y** hop itself: every 6th input (`FYP_Z_PING_EVERY`) carries `{"pts": <clock>}`, Y echoes it, and Z reports both its end-to-end latency and `rzy` in the next input so the dashboard can show both legs separately.
 5. **Test control** — a panel connects to Y on 8002, sends `{"cmd":"hello"}`, then `test_start`/`test_pause`/`test_resume`/`test_stop` with a JSON plan. Y runs the timeline, drives Z/X, applies the X↔Y `DelayLine` and writes a report. See [docs/test-panel.md](docs/test-panel.md).
 
-### Middle Y — decision proxy + local fallback
+#### Middle Y — decision proxy + local fallback
 
 - **Data path (`tick_loop`)** — while a game is active, Y advances its own game every tick, forwards the input to X and renders a lower-quality fallback while in `EDGE Y`.
 - **Monitoring path (`ping_loop`)** — pings X every 0.2 s, smooths the RTT and switches modes with `HIGH_MS`/`LOW_MS`/`BAD_COUNT`/`RECOVER_S`.
 - **Delay injection** — the `DelayLine` pair holds every X-facing message by `RTT/2` in each direction. The dashboard slider and the test timeline both use it.
 - **Real link loss** — if X disappears, Y switches to `EDGE Y` immediately, re-dials every 2 s and resumes with an IDR when the cloud link returns.
+
+### Task model (A–U)
+
+The archived plan defines these semantic tasks; the count is not fixed — split only if profiling shows a hotspot.
+
+| ID | Task | State | Default placement | Current code |
+|----|------|-------|-------------------|--------------|
+| **A** | World simulation: movement, spawning, physics, HP, score | Stateful | X (movable) | `game/simulation.py` (waves/HP/score; pathfinding is B) |
+| **B** | AI / pathfinding / bot decisions | Needs A state | X (movable candidate) | Simple bot movement/fire in `game/simulation.py`; no pathfinding |
+| **C** | Hit registration: bullets vs bots/player/obstacles | Entity state | X (movable) | `game/hitreg.py` |
+| **D** | Rendering: world, HP bars, particles | Stateful visual | X (movable) | `game/render.py` |
+| **E** | Video encoding: JPEG/H.264 | Stateless per frame | X (movable) | `common/video.py` |
+| **L** | Leaderboard / results store | Persistent SQLite | **X pinned** | Not implemented |
+| **U** | UI / menu / leaderboard display | Local | **Z (not offloaded)** | `ui/menu.py`, `ui/overlay.py`, `ui/config_menu.py`; leaderboard placeholder |
+
+Dependency graph:
+
+```
+Input -> A simulation -> B AI -> C hit registration -> A (HP/score)
+                         -> D render -> E encode -> Z
+Game over -> L submit/top -> U display
+```
+
+Rules:
+
+- **L is pinned to X** — a placement message that tries to move it is rejected and logged.
+- **U is local to Z** and never appears in the router table.
+- **F–K and M–T are reserved** for future task splits; the semantic task count is not fixed.
+
+### Placement patterns (planned)
+
+The whole-pipeline baseline above stays as the implemented comparison mode. The target is task-level placement, with a placement table on Y and pre-placed local copies (no live code migration in the first version).
+
+| Pattern | X responsibilities | Y responsibilities | Z | Status |
+|---|---|---|---|---|
+| **All Cloud** | A B C D E L | task router/relay | U | Planned |
+| **Offload A/B** | C D E L | A B + router | U | Planned |
+| **All Edge** | L | A B C D E + router | U | Planned |
+| **Pinned L** | L (pinned) + the A–E pattern | router | U | Rule across patterns |
+| **Legacy whole-pipeline** | A–E when healthy; idle in edge | A–E in `EDGE Y` | U | Implemented |
+
+Router / protocol (planned):
+
+- Y holds the placement table (`{"A":"X", ...}`) and dispatches local tasks directly, remote tasks over the existing WebSocket with a timeout.
+- L is rejected from any placement that tries to move it; U never appears in the table.
+- Messages: `{"t":"placement","tasks":{...}}`, `{"t":"task","id":"A",...}`, `{"t":"task_result",...}`, `{"t":"leaderboard",...}`.
+- Per-task compute/network time is logged; the legacy `mode` stays a separate control.
+
+### Pattern axes
+
+| Axis | Values | Current |
+|---|---|---|
+| **Placement pattern** | All Cloud / Offload A/B / All Edge / Pinned L | Planned (router/table) |
+| **Legacy mode** | `auto` / `cloud` / `edge` | Implemented (whole-pipeline fallback) |
+| **Video preset** | A0 / A1 / A2 / intra / current | Recorded; runtime in Phase 3 |
+| Workload | light / medium / heavy | Implemented |
+| Input pattern | idle / strafe / circle / figure8 / shoot | Phase 1 |
+| Delay timeline | delay / mode / pause | Phase 1 |
+
+The test plan currently has `mode` (legacy) and `video_preset` (video); the planned placement axis will add `placement`/`pattern` alongside them. The test panel's "pattern" selector is therefore the placement pattern, not A0/A1/A2.
+
+### Implementation status
+
+- **Implemented:** whole-pipeline baseline; A–E game core; U menu/overlay/config (partial); H.264/JPEG; Y fallback; test runner/reports; Z test mode.
+- **Partial:** B (no pathfinding); U (leaderboard placeholder); no L.
+- **Planned:** Y task router/placement table; local A/B copies; L SQLite on X; leaderboard view; per-task metrics; test-panel placement axis; Phase 2 Tk panel; Phase 3 X runtime video.
+
+
 
 ---
 
@@ -332,10 +402,12 @@ Because X asks for a snapshot on every connection, the game state continues inst
 
 ### Phase 1 — implemented
 
-Y accepts a test protocol on the dashboard WebSocket (8002). A plan selects the workload, mode
-(`auto`/`cloud`/`edge`), X video preset (recorded now; applied at runtime in Phase 3), Z input
+Y accepts a test protocol on the dashboard WebSocket (8002). A plan selects the workload, legacy
+mode (`auto`/`cloud`/`edge`), X video preset (recorded now; applied at runtime in Phase 3), Z input
 pattern (`idle`/`strafe`/`circle`/`figure8`/`shoot`), warm-up/measurement duration and a timeline
-of events (`delay`, `mode`, `pause`, `pattern`).
+of events (`delay`, `mode`, `pause`, `pattern`). The **placement pattern** (All Cloud / Offload
+A/B / All Edge / Pinned L) is a separate planned axis for the task router; until it exists,
+`mode` only controls the legacy whole-pipeline fallback.
 
 ```powershell
 # Cloud X and Middle Y run normally. Start Z in test mode:
@@ -360,7 +432,8 @@ Phase 1 command reference and the report schema: [docs/test-panel.md](docs/test-
 
 ### Phase 2 / Phase 3
 
-- **Phase 2** — `tools/test_panel.py` (Tk 8.6, stdlib): plan/preset editor, timeline, progress,
+- **Phase 2** — `tools/test_panel.py` (Tk 8.6, stdlib): plan/preset editor, workload/mode/input/
+  video selectors, placement-pattern selector (once the task router lands), timeline, progress,
   Start/Pause/Resume/Terminate, live metrics, report history, and launch/focus of the Z pygame
   window. The browser dashboard stays available as a remote monitor.
 - **Phase 3** — X runtime `video` command (GOP/resolution/bitrate/intra-refresh with encoder
@@ -601,6 +674,11 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
   no scene-cut IDRs, and optionally intra-refresh. A dropped frame is repaired by the next
   keyframe, or sooner when Z requests an IDR. The Phase 3 panel will switch GOP/resolution/
   intra-refresh at runtime.
+- **Task-level placement not implemented.** The current X/Y behaviour is the whole-pipeline
+  baseline; the task router, placement table, local A/B copies and pinned L are planned. `mode`
+  is the legacy fallback; the test panel’s placement-pattern axis is future work.
+- **Leaderboard / U partial.** The menu, overlays and config editor exist; the leaderboard display
+  is a placeholder and L (SQLite on X) is not implemented.
 - **Test panel UI.** Phase 1 is the protocol/CLI; the Tk panel is Phase 2, so progress and report
   access are currently terminal-based.
 - **Phase A archive.** A0/A1/A2 (GOP30 vs GOP120 vs 540p on the old X) are only reproducible with

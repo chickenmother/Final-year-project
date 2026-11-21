@@ -55,7 +55,8 @@ A plan is plain JSON. The full example lives in
 | Field | Values | Meaning |
 |---|---|---|
 | `workload` | `light`, `medium`, `heavy` | game profile (bots/obstacles/bullets) |
-| `mode` | `auto`, `cloud`, `edge` | Y mode: RTT auto-switch, force X, force Y |
+| `mode` (legacy) | `auto`, `cloud`, `edge` | Y whole-pipeline: RTT auto-switch, force X, force Y |
+| `placement` (planned) | `all_cloud`, `offload_ab`, `all_edge`, `pinned` | task-level placement; task router planned |
 | `video_preset` | `current`, `A0`, `A1`, `A2`, `intra` | recorded in Phase 1; applied to X in Phase 3 |
 | `input_pattern` | `idle`, `strafe`, `circle`, `figure8`, `shoot` | deterministic Z input |
 | `warmup_s` | 0–60 | excluded from the measurement |
@@ -161,7 +162,7 @@ report after the run. Ctrl+C sends `test_stop`.
 
 `tools/test_panel.py` (Tk 8.6, stdlib) will provide:
 
-- plan/preset editor, workload/mode/input/video selectors
+- plan/preset editor, workload/mode/input/video/placement selectors (placement once the router lands)
 - timeline editor and visual markers
 - Start / Pause / Resume / Terminate, progress and phase
 - live Y/X/Z metrics and the current event
