@@ -6,14 +6,14 @@
 |---|---|
 | **Author** | Andrew Sung |
 | **Supervisor** | Noriko Matsumoto |
-| **Institution** | Kyushu Sangyou Unisersity Department of Information Science|
+| **Institution** | Kyushu Sangyo University, Department of Information Science |
 | **Programme** | Final Year Project |
-| **Academic Year** | [2025/2026] |
-| **Status** | Working prototype — tested with Python 3.13.9 on Windows, 3 machines on one LAN |
+| **Academic Year** | 2025/2026 |
+| **Status** | Working prototype — Python 3.13.9 on Windows; Phase 1 test runner/CLI shipped, Phase 2 Tk panel next |
 
 A final year project modelling a **3-tier vertical cloud gaming architecture** — **End Node (Z) → Middle Edge Gateway (Y) → Cloud Server (X)** — under simulated network latency degradation.
 
-Cloud gaming's main weakness is latency: every frame is rendered far away and must travel to the player, so a degraded cloud link directly hurts responsiveness. This simulator shows how an intermediate **edge** tier mitigates that. While the path to the cloud is healthy, Cloud X runs the game and streams high-quality frames. When the measured round-trip time degrades, Middle Y — which keeps a deterministic copy of the game running at all times — takes over rendering locally at lower quality, cutting the player out of the slow cloud leg. The active tier, the measured RTT, the cloud lag and the end-to-end input→display latency are all observable live in a browser dashboard.
+Cloud gaming's main weakness is latency: every frame is rendered far away and must travel to the player, so a degraded cloud link directly hurts responsiveness. This simulator shows how an intermediate **edge** tier mitigates that. While the path to the cloud is healthy, Cloud X runs the game and streams high-quality frames. When the measured round-trip time degrades, Middle Y — which keeps a deterministic copy of the game running at all times — takes over rendering locally at lower quality, cutting the player out of the slow cloud leg. The active tier, the measured RTT, the cloud lag and the end-to-end input→display latency are observable live in a browser dashboard, and the test control panel can run scripted measurement plans.
 
 ---
 
@@ -29,37 +29,25 @@ End Node (Z)  ──►  Middle Edge Gateway (Y)  ──►  Cloud Server (X)
 | Tier | Process | Endpoint | Role |
 |------|---------|----------|------|
 | **Cloud X** | `x_server.py` | `ws://X_IP:8001` | Authoritative game-state execution engine; renders 1280×720 and streams H.264 (x264/NVENC/QSV) with JPEG fallback |
-| **Middle Y** | `y_gateway.py` | `ws://Y_IP:8000` (to Z)<br>`ws://Y_IP:8002` (dashboard) | Decision proxy + sequencer, local fallback renderer (H.264), RTT monitor, dashboard backend |
-| **End Z** | `z_client.py` | connects to `ws://Y_IP:8000` | User input sampler (60 Hz), latency monitor, displays received footage with a top-right FPS counter |
+| **Middle Y** | `y_gateway.py` | `ws://Y_IP:8000` (to Z)<br>`ws://Y_IP:8002` (dashboard/test) | Decision proxy + sequencer, local fallback renderer (H.264), RTT monitor, dashboard backend, test runner |
+| **End Z** | `z_client.py` | connects to `ws://Y_IP:8000` | User input sampler (120 Hz), latency monitor, displays received footage; `FYP_TEST=1` runs scripted input patterns |
 
-Input travels **up** the chain (Z → Y → X) and video travels **down** (X → Y → Z). Z contains no game logic and no image assets — it only samples the keyboard and blits frames. Both X and Y import the same `common/game.py`, which is what makes the fallback seamless.
+Input travels **up** the chain (Z → Y → X) and video travels **down** (X → Y → Z). Z contains no game logic and no image assets — it only samples input and blits frames. X and Y run the same deterministic runtime core (`game/simulation.py`), which is what makes the fallback seamless. `common/game.py` is the legacy deterministic game kept only as the `selftest.py` cross-tier oracle.
 
 ### Message flow
 
-1. **Input up** — every tick, Z sends JSON `{"keys": "...", "n": <seq>, "e2e": <ms>}` to Y.
+1. **Input up** — every tick, Z sends JSON `{"keys": "...", "n": <seq>, "e2e": <ms>, "fps": ..., "decode": ...}` to Y.
 2. **Sequencing** — Y advances its own copy of the game, then forwards `{"t":"in","tick":<n>,"keys":"...","seq":<n>}` to X. X only steps when `tick == game.tick + 1`; a larger jump triggers `need_snap` and a full state resync.
-3. **Frames down** — every frame starts with a source byte: `X`/`Y` = JPEG (`source + struct.pack("!II", tick, seq) + JPEG bytes`), `x`/`y` = H.264 (`source + keyframe byte + struct.pack("!II", tick, seq) + H.264 bytes`). Z advertises support with `{"t":"hello","h264":true}`; Y relays the combined capability to X as `{"t":"caps","h264":…}`, so X uses H.264 only when every connected Z can decode it. On a H.264 tick gap Z waits for a keyframe and sends `want_idr`, which Y relays as `{"t":"need_idr"}` so X emits an IDR.
-4. **Telemetry** — Y pings X and pushes dashboard state every 0.2 s. Z measures the **Z↔Y** hop itself: every 6th input (`FYP_Z_PING_EVERY`) carries `{"pts": <clock>}`, Y echoes the timestamp, and Z reports both its end-to-end latency and the measured `rzy` in the next input so the dashboard can show both legs separately.
+3. **Frames down** — every frame starts with a source byte: `X`/`Y` = JPEG (`source + struct.pack("!II", tick, seq) + JPEG bytes`), `x`/`y` = H.264 (`source + keyframe byte + struct.pack("!II", tick, seq) + H.264 bytes`). Z advertises support with `{"t":"hello","h264":true}`; Y relays the combined capability to X as `{"t":"caps","h264":…}`, so X uses H.264 only when every connected Z can decode it. On an H.264 tick gap Z waits for a keyframe and sends `want_idr`, which Y relays as `{"t":"need_idr"}` so X emits an IDR.
+4. **Telemetry** — Y pings X and pushes dashboard state every 0.2 s. Z measures the **Z↔Y** hop itself: every 6th input (`FYP_Z_PING_EVERY`) carries `{"pts": <clock>}`, Y echoes it, and Z reports both its end-to-end latency and `rzy` in the next input so the dashboard can show both legs separately.
+5. **Test control** — a panel connects to Y on 8002, sends `{"cmd":"hello"}`, then `test_start`/`test_pause`/`test_resume`/`test_stop` with a JSON plan. Y runs the timeline, drives Z/X, applies the X↔Y `DelayLine` and writes a report. See [docs/test-panel.md](docs/test-panel.md).
 
 ### Middle Y — decision proxy + local fallback
 
-Middle Y separates the **data path** from the **monitoring path** so the game never waits on measurement:
-
-- **Data path (`tick_loop`):** while a game is active, Y advances its own copy of the game every tick (60 Hz), forwards the input to Cloud X with a sequence number, and — only while in `Y` mode — encodes and broadcasts a 960×540 frame every second tick (30 fps; H.264 at 2 Mbps, JPEG fallback). While Z is on the menu, neither tier steps the simulation or sends game frames.
-- **Monitoring path (`ping_loop`):** every 0.2 s Y sends `{"t":"ping"}` to X; X replies with a `pong` carrying the original timestamp, giving the Y↔X RTT. The value is smoothed with an EWMA (`0.7 × old + 0.3 × new`).
-- **State machine (`update_mode`):** X → Y after **3 consecutive** RTT samples above **80 ms**; Y → X only after RTT has stayed below **50 ms** for **3 s**. The asymmetric thresholds and the recovery timer provide hysteresis, so the mode does not flap around a single threshold.
-- **Frame fan-out (`broadcast` / `z_sender`):** each Z has its own queue. JPEG overwrites older unsent frames (newest wins), while H.264 packets are queued in order and the queue is cleared only on a keyframe, so a P-frame is never sent without the reference it needs.
-- **Cloud video pause (`send_stream`):** while Y is in fallback it tells X to stop rendering/encoding (`{"t":"stream","on":false}`). X keeps stepping the game and answering pings, and resumes with an IDR when the mode returns to X. This keeps the cloud link and CPU free while nobody displays X's video.
-
-### Deterministic lock-step and resync
-
-For a fallback node to take over mid-game, both X and Y must hold identical state:
-
-- `common/game.py` is a headless, deterministic port of the original game: all randomness comes from a **privately seeded RNG**, and input is passed in as a key string rather than read from a keyboard.
-- The original ran at 240 fps; here each 60 Hz tick performs `SUBSTEPS = 4` original frames, so game behaviour matches the original while the network only carries 60 updates per second.
-- `Game.snapshot()` serialises tick, score, deaths, player, rocks, bullets **and the RNG state**; `Game.restore()` rebuilds it. If X detects a gap (`m["tick"] > game.tick + 1`) it sends `need_snap`, Y replies with a full snapshot, and both sides converge again.
-- `selftest.py` proves this: the same input script run on X and on Y must produce an identical MD5 digest, including after a JSON round-trip and restore on a differently-seeded instance.
-├── game_config.json              # editable gameplay tuning (see Configuration)
+- **Data path (`tick_loop`)** — while a game is active, Y advances its own game every tick, forwards the input to X and renders a lower-quality fallback while in `EDGE Y`.
+- **Monitoring path (`ping_loop`)** — pings X every 0.2 s, smooths the RTT and switches modes with `HIGH_MS`/`LOW_MS`/`BAD_COUNT`/`RECOVER_S`.
+- **Delay injection** — the `DelayLine` pair holds every X-facing message by `RTT/2` in each direction. The dashboard slider and the test timeline both use it.
+- **Real link loss** — if X disappears, Y switches to `EDGE Y` immediately, re-dials every 2 s and resumes with an IDR when the cloud link returns.
 
 ---
 
@@ -67,55 +55,66 @@ For a fallback node to take over mid-game, both X and Y must hold identical stat
 
 ```
 FYP/
-├── .gitignore                   # venv, Python caches, logs, secrets, IDE files
 ├── README.md                    # this file
-├── GAME_MVP_PLAN.md             # task-placement game plan (Milestone 1+)
 ├── requirements.txt             # pinned packages (identical on all 3 machines)
-├── run_x.cmd                    # Cloud X launcher (activates venv, sets FYP_* vars)
-├── run_y.cmd                    # Middle Y launcher (<Cloud X address>)
-├── run_z.cmd                    # End Z launcher (<Middle Y address>)
+├── .gitignore                   # venv, caches, logs, secrets, IDE files
 ├── run_local.cmd                # single-PC demo: X, Y and Z on 127.0.0.1
-├── venv/                        # local virtual environment (git-ignored)
-├── x_server.py                  # Cloud X — game engine + high-quality renderer
-├── y_gateway.py                 # Middle Y — proxy, H.264 fallback renderer, RTT monitor, dashboard
-├── z_client.py                  # End Z — local menu, input sampling + frame display
+├── run_x.cmd / run_y.cmd / run_z.cmd
 ├── selftest.py                  # determinism / resync check (run on X and Y)
-├── game_config.json              # editable gameplay tuning (see Configuration)
-├── dashboard.html               # live mode, RTT, lag, game state and latency injection
-├── logs/                        # runtime CSV logs (git-ignored; .gitkeep keeps the folder)
-│   ├── log_x.csv                # generated by X: render cost + frame size
-│   ├── log_y.csv                # generated by Y
-│   └── log_z.csv                # generated by Z
-├── common/                      # shared by X and Y
-│   ├── __init__.py
-│   ├── config.py                # env-overridable addresses, ports, tick rate, thresholds
-│   ├── game.py                  # legacy deterministic core (v2 optional via FYP_GAME_CORE)
-│   ├── net.py                   # LAN address helper used by the startup banners
-│   ├── video.py                 # PyAV H.264 encoder (X, Y) / decoder (Z)
+├── game_config.json             # editable gameplay tuning
+├── x_server.py                  # Cloud X — game engine + high-quality renderer
+├── y_gateway.py                 # Middle Y — proxy, fallback renderer, RTT, dashboard + test runner
+├── z_client.py                  # End Z — menu/test mode, input sampling, frame display
+├── sync.txt                     # live cross-tier handoff log (root)
+├── common/
+│   ├── config.py                # env-overridable addresses, ports, codecs, thresholds
+│   ├── game.py                  # legacy deterministic core (selftest oracle only)
+│   ├── net.py                   # LAN address helper for startup banners
+│   ├── report.py                # test report JSON/CSV + history
+│   ├── testplan.py              # plan/event validation, timeline, summary math
+│   ├── video.py                 # PyAV H.264 encoder/decoder
 │   └── win.py                   # 1 ms Windows timer helper
-├── game/                        # task-oriented game core (Milestone 1)
-│   ├── __init__.py
+├── game/                        # runtime game core (used by X and Y)
 │   ├── entities.py              # player, bot, obstacle, bullet, particle
 │   ├── simulation.py            # HP, bullets, bots, waves, snapshot/restore
 │   ├── hitreg.py                # spatial grid and damage helpers
 │   ├── effects.py               # pooled explosion particles
 │   ├── render.py                # world/HP/particle renderer
-│   ├── settings.py              # game_config.json loader/validator + tuning types
+│   ├── settings.py              # game_config.json loader/validator
 │   └── workload.py              # light / medium / heavy profiles
+├── ui/                          # Z pygame menus and overlays
+│   ├── menu.py
+│   ├── config_menu.py
+│   └── overlay.py
+├── web/
+│   └── dashboard.html           # live mode/RTT/lag/game state + latency slider
+├── tools/
+│   ├── test_cli.py              # Phase 1 test driver
+│   ├── autoplay_z.ps1           # immortal config + unattended Z launcher
+│   └── plans/
+│       └── phase1_smoke.json
 ├── tests/
-│   └── test_game_core.py        # unit tests for the new core
-├── ui/
-│   ├── __init__.py
-│   ├── menu.py                  # local Z menu (VS Bot / workload / config / exit)
-│   └── config_menu.py           # live game_config.json viewer/editor on Z
-└── images/                      # required on X and Y only (Z does not need them)
-    ├── background.png
-    ├── bullet.png
-    ├── player.jpg
-    └── rock.png
+│   ├── test_game_core.py
+│   ├── test_testplan.py
+│   └── test_report.py
+├── docs/
+│   ├── latency-notes.md         # Wi-Fi/DERP findings and threshold calibration
+│   ├── test-panel.md            # test protocol, reports, Phase 2/3 plan
+│   └── archive/
+│       └── GAME_MVP_PLAN.md     # historical milestone plan
+├── images/                      # required on X and Y only (Z needs none)
+│   ├── background.png
+│   ├── bullet.png
+│   ├── player.jpg
+│   └── rock.png
+└── logs/                        # git-ignored runtime data
+    ├── .gitkeep
+    ├── log_x.csv / log_y.csv / log_z.csv
+    ├── reports/                 # test JSON/CSV reports
+    └── raw/                     # archived historical logs
 ```
 
-`venv/`, `__pycache__/`, `*.pyc`, `.env*` and the generated `log_*.csv` files are excluded from version control — see `.gitignore`.
+`venv/`, `__pycache__/`, `*.pyc`, `.env*`, `logs/*` and the generated `log_*.csv` files are excluded from version control — see `.gitignore`.
 
 ---
 
@@ -123,18 +122,24 @@ FYP/
 
 ### Required on all three machines
 
-- **Python 3.13.9.** X and Y run the same deterministic game, so the interpreter version must
-  match (Python only guarantees `random.random()` — not `randrange` — across versions). Mixing
-  3.10 and 3.13 can make the `selftest.py` hashes differ.
-- **Python packages**, pinned in `requirements.txt` and installed on every machine:
+- **Python 3.13.9.** X and Y run the same deterministic game, so the interpreter version must match (Python only guarantees `random.random()` — not `randrange` — across versions). Mixing versions can make the `selftest.py` hashes differ.
+- **Packages** from `requirements.txt` on every machine:
   - `pygame==2.6.1` — display, input, surface scaling and JPEG decoding on Z
   - `Pillow==11.3.0` — JPEG encoding on X and Y
-  - `websockets==15.0.1` — the async client/server transport used by all three tiers
-  - `av==19.0.2` — PyAV H.264 encoding on X and Y and decoding on Z; without it X/Y fall back to JPEG, and Z cannot decode H.264
+  - `websockets==15.0.1` — async client/server transport used by all three tiers
+  - `av==19.0.2` — PyAV H.264 encoding on X/Y and decoding on Z; without it X/Y fall back to JPEG and Z cannot decode H.264
+- **The four image assets** in `images/` — required on **X and Y**; Z does not load them.
+- **Windows is recommended but not required.** `common/win.py` calls `timeBeginPeriod(1)` so 60 Hz ticks are not quantised to the default 15.6 ms timer.
+- **A browser** on any machine for `web/dashboard.html`.
+- **Three machines** on one LAN or reachable through a mesh overlay, with these ports free:
 
-- **The four image assets** in `images/` — `background.png`, `bullet.png`, `player.jpg`, `rock.png`. Required on **X and Y**; Z does not load them.
-- **Windows is recommended but not required.** `common/win.py` calls `timeBeginPeriod(1)` so 60 Hz ticks are not quantised to the default 15.6 ms timer; on other platforms the call is swallowed and the OS timer is used as-is.
-- **A browser** on any machine for `dashboard.html`.
+  | Port | Bound by | Purpose |
+  |------|----------|---------|
+  | `8001` | Cloud X | accepts the WebSocket from Middle Y |
+  | `8000` | Middle Y | accepts the WebSocket from End Z |
+  | `8002` | Middle Y | dashboard feed / test protocol (plain WebSocket, **not HTTP**) |
+
+- **No full-tunnel VPN while testing.** Tailscale is the supported exception because it routes only the tailnet addresses.
 
 ### Network options
 
@@ -143,29 +148,9 @@ FYP/
 | **Single LAN** | X, Y and Z are on the same network | none |
 | **Mesh overlay** | X, Y and Z are on different networks | Tailscale (ZeroTier/NetBird work the same way) |
 
-Tailscale is **optional for a LAN run** and **required only for a cross-network run**. It is a
-split-tunnel mesh overlay, not a full-tunnel VPN. See
-[Deploying across different networks (WAN)](#deploying-across-different-networks-wan).
-
-- **Three machines** — on one LAN or reachable through a mesh overlay — with these ports free:
-
-  | Port | Bound by | Purpose |
-  |------|----------|---------|
-  | `8001` | Cloud X | accepts the WebSocket connection from Middle Y |
-  | `8000` | Middle Y | accepts the WebSocket connection from End Z |
-  | `8002` | Middle Y | dashboard feed (plain WebSocket) |
-
-- **No full-tunnel VPN while testing.** Clients such as Surfshark or a corporate VPN hijack the
-  default route and can make peers unreachable or add an unpredictable RTT. **Tailscale is the
-  supported exception**: it routes only the tailnet addresses. If a machine already has a
-  full-tunnel VPN, disconnect it before running the demo; leave Tailscale connected if you need it.
-
 ---
 
 ## Before You Start — Record Your Addresses
-
-Every deployment has different addresses. Fill in this table first; the commands below use the
-placeholders in the left column. **Replace the placeholder text — do not type the angle brackets.**
 
 | Value | How to find it | Your value |
 |-------|----------------|------------|
@@ -187,79 +172,22 @@ Then derive the addresses the commands need:
 | `<Y_ADDRESS>` | Y LAN IP on a same-LAN run; Y tailnet name or tailnet IP over Tailscale |
 | `<Y_DASHBOARD_ADDRESS>` | `127.0.0.1` when the browser runs on Y; otherwise `<Y_ADDRESS>` |
 
-On macOS/Linux, use `ip addr` or `ifconfig` instead of `ipconfig`. MagicDNS may be disabled in
-some tailnets; in that case use the `100.x` address from `tailscale ip -4`.
+On macOS/Linux use `ip addr` or `ifconfig` instead of `ipconfig`. If MagicDNS is disabled, use the `100.x` address from `tailscale ip -4`.
 
-### Generic example (not this project's addresses)
+Each tier only dials the peer named in its launcher:
 
-On a home LAN where X is `192.168.1.10` and Y is `192.168.1.20`:
+| Tier | Dials | Variable |
+|------|-------|----------|
+| Middle Y | Cloud X | `FYP_X_IP` = `<X_ADDRESS>` |
+| End Z | Middle Y | `FYP_Y_IP` = `<Y_ADDRESS>` |
 
-- `<X_ADDRESS>` → `192.168.1.10`
-- `<Y_ADDRESS>` → `192.168.1.20`
-- `<Y_DASHBOARD_ADDRESS>` → `127.0.0.1` if the browser runs on Y, otherwise `192.168.1.20`
-
-On Tailscale with devices named `x-home` and `y-lab`, the same placeholders become:
-
-- `<X_ADDRESS>` → `x-home`
-- `<Y_ADDRESS>` → `y-lab`
-- `<Y_DASHBOARD_ADDRESS>` → `y-lab` for a browser on another machine
-
-The example values are illustrative only; use the values you recorded above.
+`common/config.py` is the same file everywhere; the `run_*.cmd` launchers set those variables.
 
 ---
 
 ## Start the System
 
-Start the tiers in this order: **Cloud X → Middle Y → End Z**. X first avoids an initial
-`X link down` message and a few seconds in edge mode. Y and Z reconnect automatically, so the
-order is not critical after the first start.
-
-### 1. Install the same environment on all three machines
-
-From the repository root on **each** machine:
-
-```powershell
-py -3.13 -m venv venv
-.\venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python selftest.py
-```
-
-On macOS/Linux use `python3 -m venv venv` and `source venv/bin/activate`. Record the
-`ticks ... hash ...` line printed by `selftest.py`: **the hash must be identical on X and Y**.
-If it is not, stop — the two renderers would diverge the moment Y takes over. The self-test
-also prints the Python/pygame/Pillow/websockets versions so a mismatch is easy to spot.
-
-### 2. Provide the image assets
-
-Copy `background.png`, `bullet.png`, `player.jpg` and `rock.png` into `images/` on **Cloud X**
-and **Middle Y**. These four files are loaded at startup; Z does not need them.
-
-### 3. Give each tier a stable address
-
-For a same-LAN run, use a DHCP reservation or a static LAN address. For a Tailscale run, the
-MagicDNS name or `100.x` address stays stable even when an ISP changes the physical address.
-Switch any full-tunnel VPN off; Tailscale may stay connected.
-
-Each tier only needs to know the tier it connects to:
-
-| Tier | Connects to | Value to configure |
-|------|-------------|--------------------|
-| Cloud X | — | **none** — it listens on `0.0.0.0:8001` |
-| Middle Y | Cloud X | `FYP_X_IP` = `<X_ADDRESS>` |
-| End Z | Middle Y | `FYP_Y_IP` = `<Y_ADDRESS>` |
-
-`common/config.py` is the same file everywhere; the `run_*.cmd` launchers set those
-environment variables. They are `.cmd` rather than `.ps1` on purpose: the default Windows
-execution policy (`Restricted`) blocks local PowerShell scripts, but batch files always run.
-If you prefer to start the Python scripts by hand, set the variables first:
-
-```powershell
-$env:FYP_X_IP = "<X_ADDRESS>"   # only on Middle Y
-$env:FYP_Y_IP = "<Y_ADDRESS>"   # only on End Z
-```
-
-### 4. Allow the ports through Windows Firewall (once per machine)
+### Firewall (once per machine)
 
 On **Cloud X**, in an admin PowerShell:
 
@@ -278,15 +206,11 @@ New-NetFirewallRule -DisplayName "FYP Edge Y 8000 8002" -Direction Inbound `
 If `Get-NetConnectionProfile` reports `Public`, run
 `Set-NetConnectionProfile -InterfaceAlias "<name>" -NetworkCategory Private`.
 The Tailscale adapter is normally Private. If your rule is Private-only and the active adapter
-is Public, either change the adapter category or create the rule with `-Profile Any`
-(Administrator required).
+is Public, either change the category or create the rule with `-Profile Any` (Administrator).
 
-### 5. Start the tiers — in this order
+### Start the tiers — in this order
 
-Open one terminal per machine and **run from the repository root** so the `common` package
-imports correctly and the CSV logs land beside the scripts.
-
-#### Same LAN
+Run from the repository root so the `common` package imports correctly and the CSV logs land in `logs/`.
 
 ```powershell
 .\run_x.cmd
@@ -294,23 +218,16 @@ imports correctly and the CSV logs land beside the scripts.
 .\run_z.cmd <Y_LAN_IP>            # End Z     -> opens the 1280x720 menu
 ```
 
-End Z starts with a **local menu**: VS Bot, workload selection (light/medium/heavy,
-with bot counts), disabled Leaderboard/Multiplayer placeholders, and Exit. Click
-**VS BOT** or press Enter/Space to start a match. In game, `Esc` opens the pause
-overlay (Resume/Retry/Main Menu); `Esc`/`R` resumes, `T` retries, `M` returns to
-the menu. Player death opens a game-over screen with Retry/Main Menu/Exit. The
-menu works even when X/Y are down; the leaderboard will be added later.
+End Z starts with a local menu: VS Bot, workload selection (light/medium/heavy), disabled
+Leaderboard/Multiplayer placeholders and Exit. Click **VS BOT** or press Enter/Space to start a
+match. In game, `Esc` opens the pause overlay (Resume/Retry/Main Menu); `Esc`/`R` resumes,
+`T` retries, `M` returns to the menu. Player death opens a game-over screen. The menu works even
+when X/Y are down.
 
 #### Tailscale / different networks
 
-Run `tailscale up` once on each machine and confirm the peers are visible before starting:
-
-```powershell
-tailscale up
-tailscale status
-```
-
-Then start the tiers using the tailnet names or `100.x` addresses:
+Run `tailscale up` once on each machine and confirm the peers are visible before starting. Then
+use the tailnet names or `100.x` addresses:
 
 ```powershell
 .\run_x.cmd
@@ -318,35 +235,26 @@ Then start the tiers using the tailnet names or `100.x` addresses:
 .\run_z.cmd <Y_TAILNET_NAME>      # or <Y_TAILNET_IP>
 ```
 
-The single argument is the address of the peer to dial, so the same launcher works on every
-network without editing a file. The startup banners print the **physical LAN address**, not the
-tailnet address — use `tailscale ip -4` or the MagicDNS name when configuring the next machine.
-If `tailscale ping <peer>` reports `via DERP`, the path is relayed; allow extra baseline RTT and
-tune the thresholds as described in [Configuration](#configuration).
-
-X and Y reconnect automatically, so the order is no longer critical, but starting X first avoids
-an initial `X link down` message and a couple of seconds in edge mode.
-
-### 6. Open the dashboard
-
-Open `dashboard.html?ip=<Y_DASHBOARD_ADDRESS>` in a browser, or double-click the file and enter
-Y's address when asked. For a browser on Y use `127.0.0.1`; from another machine use Y's LAN or
-tailnet address. See [Open the Dashboard](#open-the-dashboard) for all methods.
+X and Y reconnect automatically, so the order is not critical; starting X first avoids an initial
+`X link down` message. If `tailscale ping <peer>` reports `via DERP`, expect a higher baseline RTT
+and tune the thresholds (see [Configuration](#configuration)).
 
 ### Single-machine demo
 
-Easiest: run `.\run_local.cmd`, which opens X, Y and Z on `127.0.0.1`.
-Or start the three tiers manually in separate terminals as `.\run_x.cmd`, `.\run_y.cmd 127.0.0.1`,
-`.\run_z.cmd 127.0.0.1` — the defaults in `common/config.py` are all `127.0.0.1`, so this
-reproduces the original one-host setup. Then open the dashboard with `?ip=127.0.0.1`.
+Easiest: run `.\run_local.cmd`, which opens X, Y and Z on `127.0.0.1` (and stops stale FYP
+processes first). Or start the three tiers manually as `.\run_x.cmd`,
+`.\run_y.cmd 127.0.0.1`, `.\run_z.cmd 127.0.0.1`.
+
+For an unattended test run, also set `FYP_TEST=1` before starting Z (the game window stays
+open; the window shows `TEST READY` and waits for Y’s test commands).
 
 ---
 
 ## Open the Dashboard
 
-`dashboard.html` is a static page that opens a WebSocket to Y on port `8002`. Y does not serve
-the page, and **`8002` is not an HTTP page** — do not browse to `http://<Y_ADDRESS>:8002`. Open
-the file instead.
+`web/dashboard.html` is a static page that opens a WebSocket to Y on port `8002`. Y does not
+serve the page, and **`8002` is not an HTTP page** — do not browse to `http://<Y_ADDRESS>:8002`.
+Open the file instead.
 
 **Prerequisite:** Y must be running and listening:
 
@@ -356,7 +264,7 @@ Get-NetTCPConnection -LocalPort 8002 -State Listen
 
 ### Method 1 — double-click
 
-Open `dashboard.html`; when prompted, enter Y's address:
+Open `web/dashboard.html`; when prompted, enter Y's address:
 
 | Browser runs on | Enter |
 |-----------------|-------|
@@ -367,16 +275,16 @@ Open `dashboard.html`; when prompted, enter Y's address:
 ### Method 2 — URL with the `?ip=` query parameter
 
 ```text
-dashboard.html?ip=<Y_DASHBOARD_ADDRESS>
+web/dashboard.html?ip=<Y_DASHBOARD_ADDRESS>
 ```
 
-When opening from disk, the query must be part of the file URL, for example:
+When opening from disk, the query must be part of the file URL:
 
 ```text
-file:///C:/path/to/FYP/dashboard.html?ip=127.0.0.1
+file:///C:/path/to/FYP/web/dashboard.html?ip=127.0.0.1
 ```
 
-### Method 3 — local HTTP server (recommended when `?ip=` must be reliable)
+### Method 3 — local HTTP server
 
 From the repository root:
 
@@ -387,188 +295,94 @@ From the repository root:
 Then open:
 
 ```text
-http://localhost:8080/dashboard.html?ip=127.0.0.1
+http://localhost:8080/web/dashboard.html?ip=127.0.0.1
 ```
 
 Replace `127.0.0.1` with `<Y_LAN_IP>` or `<Y_TAILNET_NAME>` when the browser is on another
 machine. Stop the server with `Ctrl+C` when done.
 
-### Dashboard from another network
-
-Allow inbound TCP `8002` on Y. The firewall rule above uses `-Profile Private`; if
-`Get-NetConnectionProfile` reports `Public`, use `-Profile Any` (Administrator) or change the
-adapter category. The page retries every second, so it reconnects after Y restarts. If it still
-shows `disconnected - retrying`, check that Y is running, that the `?ip=` value is correct, and
-that the 8002 rule applies to the active adapter profile.
-
----
-
-## What the Dashboard Shows
+### What the Dashboard Shows
 
 - **Active node** — `CLOUD X` (green) or `EDGE Y` (orange), updated every 0.2 s.
 - **RTT X↔Y** — the smoothed round-trip time Y measures with its ping/pong loop (the cloud leg).
-- **RTT Z↔Y** — measured by End Z and reported back to Y (the last-mile leg); useful when Z is on a different network from Y.
-- **X lag** — how many ticks ahead Y's local simulation is compared with the newest frame received from X.
-- **input→display (Z)** — end-to-end latency reported by End Z: how long it took between sending an input and displaying a frame produced from it.
-- **Cloud X link** — `up`/`DOWN`, whether Middle Y currently holds a WebSocket to X.
+- **RTT Z↔Y** — measured by End Z and reported back to Y (the last-mile leg).
+- **X lag** — how many ticks ahead Y's local simulation is compared with the newest X frame.
+- **input→display (Z)** — end-to-end latency reported by End Z.
+- **Cloud X link** — `up`/`DOWN`, whether Y currently holds a WebSocket to X.
 - **dashboard** — whether the browser is connected to Y (it retries every second).
-- **Injected X↔Y latency (RTT)** — a 0–400 ms slider.
+- **Injected X↔Y latency (RTT)** — a 0–400 ms slider (the same `DelayLine` used by test plans).
 
-## Latency Injection
+### Latency Injection
 
-The slider simulates a slower WAN link without touching the network stack. When you move it, the browser sends `{"delay_ms": value}` to Y, which sets both `DelayLine` instances to `value / 2000` seconds — half the RTT per direction:
+Moving the slider sends `{"delay_ms": value}` to Y, which sets both `DelayLine` instances to
+`value / 2000` seconds — half the RTT per direction:
 
 - **uplink** — every message Y sends to X (inputs, pings) is held for that delay;
 - **downlink** — every message X sends to Y (pongs, snapshots, frames) is held for that delay.
 
-The `DelayLine` queues are ordered and non-blocking, so delay is applied per message without
-reordering. Increase the slider past your `HIGH_MS` threshold and, after `BAD_COUNT` consecutive
-samples, Y switches to `EDGE Y`; bring it below `LOW_MS` for `RECOVER_S` and the mode returns to
-`CLOUD X`. With the defaults on a healthy LAN that means roughly **80 ms** to switch and **50 ms**
-for 3 s to recover. If you tuned the thresholds for a WAN baseline
-(see [Tune for your network](#tune-for-your-network)), use those values instead. The dashboard's
-RTT value and the overlay on Z (`CLOUD X (H.264)` → `EDGE Y (H.264)`) confirm the
-migration.
-
-A real link failure is handled too: if the X connection drops (unplug Cloud X, restart it, or
-lose Wi-Fi) Y switches to `EDGE Y` immediately and keeps the game running, so Z never freezes.
-Y re-dials X every 2 s; once the RTT has stayed below `LOW_MS` for `RECOVER_S` the mode returns
-to `CLOUD X`. Because X asks for a snapshot on every connection, the game state continues
-instead of restarting.
+Increase the slider past `HIGH_MS` and, after `BAD_COUNT` consecutive samples, Y switches to
+`EDGE Y`; bring it below `LOW_MS` for `RECOVER_S` and the mode returns to `CLOUD X`. A real link
+failure is handled too: if the X connection drops, Y switches to `EDGE Y` immediately and keeps
+the game running; it re-dials X every 2 s and returns to `CLOUD X` once the RTT is healthy.
+Because X asks for a snapshot on every connection, the game state continues instead of restarting.
 
 ---
 
-## Verification & Self-Test
+## Test Control Panel
 
-Run this on **both** Cloud X and Middle Y:
+### Phase 1 — implemented
 
-```powershell
-.\venv\Scripts\python.exe selftest.py
-```
-
-(With the virtual environment activated, plain `python selftest.py` is equivalent.)
-
-It plays a fixed 3000-tick input script, performs a JSON round-trip and restore on a differently-seeded instance, and prints:
-
-```
-host: <machine> | <OS build>
-python <ver> | pygame <ver> | pillow <ver> | websockets <ver>
-ticks 3000 score <n> deaths <n> hash <md5>
-resync OK
-render bytes: <X bytes> (X) <Y bytes> (Y)
-```
-
-The **hash must be identical on both machines** and `resync OK` must be printed — that is what guarantees Y can take over from X without a visible state jump. Compare the `host`/version lines too: a different Python version is the most likely reason for a hash mismatch.
-
-For a quick X-side capacity check, start X alone, play for a minute, then look at
-`logs/log_x.csv`: `encode_ms` is the render + encode cost, `frame_bytes` the encoded size, and
-`key` marks IDR frames. On the reference machine (libx264 ultrafast, GOP 120, VBV) render+encode is
-**~5–6 ms** at 720p/60, average bitrate **~3–4 Mbps**, and keyframes are **~100–120 KB**.
-Without the VBV/ipratio settings a 720p keyframe reaches 200–250 KB.
-
-A keyframe must fit the uplink's burst budget: 120 KB at 20 Mbps is ~48 ms, which is exactly the
-periodic hitch users see. GOP 120 makes those bursts rare (0.5/s); `FYP_X_INTRA_REFRESH=1` removes
-them entirely (max frame ~20–50 KB).
-
-## Output & Logs
-
-All three logs are written to the **`logs/` directory** beside the scripts and are truncated on each start. The directory is git-ignored except for `.gitkeep`, so runtime measurements never clutter the repository root.
-
-`logs/log_x.csv` — written by Cloud X for every frame it renders:
-
-| Column | Meaning |
-|--------|---------|
-| `unix_time` | wall-clock timestamp of the render |
-| `tick` | game tick in the frame header |
-| `seq` | input sequence number carried in the frame header |
-| `codec` | `h264` or `jpeg` for the frame that was sent |
-| `key` | `1` if the frame is an IDR/keyframe, `0` otherwise |
-| `encode_ms` | time spent rendering + encoding the frame |
-| `frame_bytes` | encoded payload size (H.264 access unit or JPEG) |
-
-`logs/log_y.csv` — written by Middle Y every 0.2 s:
-
-| Column | Meaning |
-|--------|---------|
-| `unix_time` | wall-clock timestamp of the sample |
-| `mode` | active tier at that moment (`X` or `Y`) |
-| `rtt_ms` | smoothed Y↔X RTT in milliseconds |
-| `injected_delay_ms` | RTT currently injected by the dashboard slider |
-| `e2e_ms_from_Z` | last end-to-end input→display latency reported by Z |
-| `rtt_zy_ms_from_Z` | Z↔Y round-trip time measured by End Z and reported back to Y |
-| `x_link` | `1` while the WebSocket to Cloud X is up, `0` while it is down |
-
-`logs/log_z.csv` — written by End Z for every displayed frame that can be matched to an input:
-
-| Column | Meaning |
-|--------|---------|
-| `unix_time` | wall-clock timestamp of display |
-| `source` | tier that produced the frame (`X` or `Y`) |
-| `codec` | `h264` or `jpeg` |
-| `tick` | game tick carried in the frame header |
-| `first` | `1` for the first frame carrying this input seq, `0` for a repeat |
-| `e2e_ms` | input→display latency in milliseconds |
-| `decode_ms` | time spent decoding the frame off the event loop (H.264) |
-| `rtt_zy_ms` | current Z↔Y round-trip time measured by the probe loop |
-
-Only `first=1` rows should be used for latency statistics: when X renders several frames for the
-same input seq (e.g. paused input), the repeats show the same state and would inflate the p50.
-The `e2e_ms` sent to Y and shown on the dashboard is updated only on `first=1` frames.
-
-Y flushes its file on every sample; Z flushes every 30 frames.
-
----
-
-## Test Control Panel (Phase 1)
-
-Y now accepts a small test protocol on the dashboard WebSocket (port 8002). A
-test plan selects the workload, mode (`auto`/`cloud`/`edge`), X video preset
-(recorded now; runtime switching arrives in Phase 3), Z input pattern
-(`idle`/`strafe`/`circle`/`figure8`/`shoot`), warm-up/measurement duration and a
-timeline of events (`delay`, `mode`, `pause`, `pattern`).
-
-Phase 1 ships a CLI driver and the Y/Z protocol; the Tk panel arrives in Phase 2.
+Y accepts a test protocol on the dashboard WebSocket (8002). A plan selects the workload, mode
+(`auto`/`cloud`/`edge`), X video preset (recorded now; applied at runtime in Phase 3), Z input
+pattern (`idle`/`strafe`/`circle`/`figure8`/`shoot`), warm-up/measurement duration and a timeline
+of events (`delay`, `mode`, `pause`, `pattern`).
 
 ```powershell
-# Start Cloud X, Middle Y and End Z normally. Z must be launched in test mode:
+# Cloud X and Middle Y run normally. Start Z in test mode:
 $env:FYP_TEST = "1"
-.\run_z.cmd <Y_IP>
+.\run_z.cmd <Y_ADDRESS>
 
-# Drive a plan through the Y dashboard socket:
-.\venv\Scripts\python.exe tools\test_cli.py --y ws://127.0.0.1:8002 `
-    --plan tools\plans\phase1_smoke.json
+# Drive a plan through Y:
+.\venv\Scripts\python.exe tools\test_cli.py `
+    --y ws://<Y_DASHBOARD_ADDRESS>:8002 --plan tools\plans\phase1_smoke.json
 ```
 
-A plan is plain JSON; timeline events are relative to the measurement start:
+For unattended runs the match must be unable to end. The test config keeps the player alive
+(`player.max_hp=1000`, zero obstacle/bot damage, `light` workload); point Z at it with
+`FYP_GAME_CONFIG` (or let `tools\autoplay_z.ps1` generate it under `%TEMP%\fyp_phaseA`).
 
-```json
-{"name":"A1 delay sweep","warmup_s":5,"duration_s":60,"workload":"light",
- "mode":"auto","video_preset":"A1","input_pattern":"strafe",
- "events":[{"at_s":10,"kind":"delay","delay_ms":100,"hold_s":15},
-           {"at_s":30,"kind":"mode","mode":"edge","hold_s":10},
-           {"at_s":50,"kind":"pause","hold_s":5}]}
-```
+Y writes `logs/reports/<id>.json` and `.csv`: date/time, plan, environment, applied events,
+5 Hz samples (mode, RTT, injected delay, e2e, X/Y/Z FPS, decode/encode when available) and
+p50/p90/p99/max summaries. Paused samples are excluded from the summaries. The CLI prints the
+summary when the run finishes; the raw per-frame logs remain in `logs/log_x/y/z.csv`.
 
-Y writes `logs/reports/<id>.json` and `.csv`: date/time, plan, environment,
-applied events, 5 Hz samples (mode, RTT, injected delay, e2e, X/Y/Z FPS,
-decode/encode when available) and p50/p90/p99/max summaries. Paused samples are
-flagged and excluded from the summaries; `tools/test_cli.py` prints the summary
-when the run finishes. The raw per-frame logs remain in `logs/log_x/y/z.csv`.
+Phase 1 command reference and the report schema: [docs/test-panel.md](docs/test-panel.md).
 
-Phase 3 adds runtime X `video` switching (A0/A1/A2/intra), X FPS/encode stats
-and the `stop` command; until then the X encoder is configured by its existing
-`FYP_X_*` environment variables and the report records
-`video_runtime: current`.
+### Phase 2 / Phase 3
+
+- **Phase 2** — `tools/test_panel.py` (Tk 8.6, stdlib): plan/preset editor, timeline, progress,
+  Start/Pause/Resume/Terminate, live metrics, report history, and launch/focus of the Z pygame
+  window. The browser dashboard stays available as a remote monitor.
+- **Phase 3** — X runtime `video` command (GOP/resolution/bitrate/intra-refresh with encoder
+  rebuild + IDR), X `stats` (fps/encode/keyframes) and X `stop`. The panel’s A0/A1/A2/intra
+  presets then apply without restarting X. Until then X uses its startup `FYP_X_*` values and
+  the report records `video_runtime: current`.
+
+---
 
 ## Configuration
 
 ### Gameplay configuration
 
-Gameplay values live in `game_config.json` and are loaded by `game/settings.py`. Start Z and press **C** (or click **GAME CONFIG**) to open the visual editor. Changes are saved immediately, shown on the dashboard, and applied on the next game start.
+Gameplay values live in `game_config.json` and are loaded by `game/settings.py`. Start Z and press
+**C** (or click **GAME CONFIG**) to open the visual editor. Changes are saved immediately, shown
+on the dashboard, and applied on the next game start.
 
-The editor groups settings by **World**, **Player**, **Bot**, **Obstacle**, **Effects** and the selected **Profile**. Use Up/Down to select, Left/Right to change (Shift = 5x), 1/2/3 to edit a workload profile, `S` to save, `R` to reload, `D` to make the current profile the default, and Esc to return. The JSON file can also be edited directly; out-of-range values are clamped and missing values fall back to defaults.
-
-The `start` message carries the config to Y and X, so all three tiers use the same HP, speeds, damage, spawn counts and work limits even when they are on different machines.
+The editor groups settings by **World**, **Player**, **Bot**, **Obstacle**, **Effects** and the
+selected **Profile**. Use Up/Down to select, Left/Right to change (Shift = 5x), 1/2/3 to edit a
+workload profile, `S` to save, `R` to reload, `D` to make the current profile the default, and Esc
+to return. Out-of-range values are clamped; missing values fall back to defaults. The `start`
+message carries the config to Y and X, so all three tiers use the same values.
 
 ### Network and streaming configuration
 
@@ -576,45 +390,44 @@ Network and streaming tunables live in `common/config.py`:
 
 | Constant | Env var | Default | Meaning |
 |----------|---------|---------|---------|
-| `X_HOST` | `FYP_X_HOST` | `0.0.0.0` | interface Cloud X binds (not a connect target) |
+| `X_HOST` | `FYP_X_HOST` | `0.0.0.0` | interface Cloud X binds |
 | `Y_HOST` | `FYP_Y_HOST` | `0.0.0.0` | interface Middle Y binds |
 | `X_IP` | `FYP_X_IP` | `127.0.0.1` | address Middle Y dials (Cloud X) |
 | `Y_IP` | `FYP_Y_IP` | `127.0.0.1` | address End Z and the dashboard dial (Middle Y) |
 | `X_PORT` | `FYP_X_PORT` | `8001` | port Cloud X listens on for Y |
 | `Y_PORT_Z` | `FYP_Y_PORT_Z` | `8000` | port Middle Y listens on for Z |
-| `Y_PORT_DASH` | `FYP_Y_PORT_DASH` | `8002` | port Middle Y serves the dashboard on |
-| `PING_INTERVAL`, `PING_TIMEOUT` | `FYP_PING_INTERVAL`, `FYP_PING_TIMEOUT` | `15`, `15` | WebSocket keepalive, in seconds |
+| `Y_PORT_DASH` | `FYP_Y_PORT_DASH` | `8002` | dashboard/test port on Middle Y |
+| `PING_INTERVAL`, `PING_TIMEOUT` | `FYP_PING_INTERVAL`, `FYP_PING_TIMEOUT` | `15`, `15` | WebSocket keepalive (s) |
 | `RECONNECT_S` | — | `2.0` | wait before re-dialling a lost peer |
-| `TICK_RATE` | — | `60` | simulation ticks per second (each tick = 4 original 240 fps frames) |
-| `X_STREAM_EVERY` | `FYP_X_STREAM_EVERY` | `1` | X renders every Nth tick (1 → 60 fps at 720p; use 2 for 30 fps). **Z must use the same value** — it detects drops from the tick stride |
-| `Y_STREAM_EVERY` | `FYP_Y_STREAM_EVERY` | `2` | Y renders every Nth tick. **Z must use the same value** |
-| `WIN_W`, `WIN_H` | `FYP_WIN_SIZE` (`1280x720`) | `1280`, `720` | window size on Z |
-| `X_SIZE` | `FYP_X_SIZE` (`1280x720`) | `(1280, 720)` | Cloud X capture size |
-| `X_QUALITY` | `FYP_X_QUALITY` | `80` | Cloud X JPEG quality (fallback mode) |
-| `X_CODEC` | `FYP_X_CODEC` | `h264` | `h264` or `jpeg` for the cloud stream |
-| `X_ENCODER` | `FYP_X_ENCODER` | `libx264` | `libx264`, `h264_nvenc`, or `h264_qsv` |
-| `X_BITRATE` | `FYP_X_BITRATE` | `4000000` | target H.264 bitrate in bits/s (4 Mbps is a safer WAN default) |
-| `X_GOP` | `FYP_X_GOP` | `120` | keyframe interval in frames (2 s at 60 fps); scene-cut IDRs are disabled, IDR on request recovers a drop |
-| `X_INTRA_REFRESH` | `FYP_X_INTRA_REFRESH` | off | experimental: no periodic IDR, max frame ~20–50 KB. **Set the same value on Z** |
-| `X_FPS` | — | `TICK_RATE // X_STREAM_EVERY` | frames per second X encodes |
-| `Y_SIZE` | `FYP_Y_SIZE` (`960x540`) | `(960, 540)` | Edge Y capture size |
-| `Y_QUALITY` | `FYP_Y_QUALITY` | `55` | Edge Y JPEG quality (used only when H.264 is unavailable) |
-| `Y_CODEC` | `FYP_Y_CODEC` | `h264` | `h264` or `jpeg` for the Y fallback |
-| `Y_ENCODER` | `FYP_Y_ENCODER` | `libx264` | `libx264`, `h264_nvenc`, or `h264_qsv` |
-| `Y_BITRATE` | `FYP_Y_BITRATE` | `2000000` | target H.264 bitrate in bits/s |
-| `Y_GOP` | `FYP_Y_GOP` | `10` | keyframe interval in frames |
-| `HIGH_MS` | `FYP_HIGH_MS` | `80` | RTT above which a sample counts as "bad" (X → Y) |
+| `TICK_RATE` | — | `60` | simulation ticks per second |
+| `X_STREAM_EVERY` | `FYP_X_STREAM_EVERY` | `1` | X renders every Nth tick (1 → 60 fps). **Z must match** |
+| `Y_STREAM_EVERY` | `FYP_Y_STREAM_EVERY` | `2` | Y renders every Nth tick (30 fps). **Z must match** |
+| `WIN_W`, `WIN_H` | `FYP_WIN_SIZE` | `1280x720` | window size on Z |
+| `X_SIZE` | `FYP_X_SIZE` | `1280x720` | Cloud X capture size |
+| `X_QUALITY` | `FYP_X_QUALITY` | `80` | Cloud X JPEG quality |
+| `X_CODEC`, `X_ENCODER` | `FYP_X_CODEC`, `FYP_X_ENCODER` | `h264`, `libx264` | stream codec and encoder |
+| `X_BITRATE` | `FYP_X_BITRATE` | `4000000` | target H.264 bitrate (4 Mbps) |
+| `X_GOP` | `FYP_X_GOP` | `120` | keyframe interval; scene-cut IDRs disabled |
+| `X_INTRA_REFRESH` | `FYP_X_INTRA_REFRESH` | off | no periodic IDR; **set the same value on Z** |
+| `Y_SIZE` | `FYP_Y_SIZE` | `960x540` | Edge Y capture size |
+| `Y_QUALITY` | `FYP_Y_QUALITY` | `55` | Edge Y JPEG quality |
+| `Y_CODEC`, `Y_ENCODER` | `FYP_Y_CODEC`, `FYP_Y_ENCODER` | `h264`, `libx264` | fallback stream codec/encoder |
+| `Y_BITRATE` | `FYP_Y_BITRATE` | `2000000` | Edge H.264 bitrate |
+| `Y_GOP` | `FYP_Y_GOP` | `10` | Edge keyframe interval |
+| `HIGH_MS` | `FYP_HIGH_MS` | `80` | RTT above which a sample is “bad” (X → Y) |
 | `LOW_MS` | `FYP_LOW_MS` | `50` | RTT below which recovery can begin (Y → X) |
 | `BAD_COUNT` | `FYP_BAD_COUNT` | `3` | consecutive bad samples before switching to Y |
-| `RECOVER_S` | `FYP_RECOVER_S` | `3.0` | seconds below `LOW_MS` before switching back to X |
-| `Z_INPUT_HZ` | `FYP_Z_INPUT_HZ` | `120` | Z input sampling rate; halves the age of a key press at the next 60 Hz tick |
-| `Z_PING_EVERY` | `FYP_Z_PING_EVERY` | `6` | Z sends a Z↔Y latency probe every Nth input (scaled to ~10/s) |
+| `RECOVER_S` | `FYP_RECOVER_S` | `3.0` | seconds below `LOW_MS` before returning to X |
+| `Z_INPUT_HZ` | `FYP_Z_INPUT_HZ` | `120` | Z input sampling rate |
+| `Z_PING_EVERY` | `FYP_Z_PING_EVERY` | `6` | every Nth input carries a Z↔Y probe |
+| — | `FYP_TEST` | unset | Z test mode (`1`); waits for Y commands |
+| — | `FYP_GAME_CONFIG` | unset | path to an alternate game config (test immortality) |
 
 ### Tune for your network
 
-`HIGH_MS`/`LOW_MS` are calibrated for a healthy LAN (sub-millisecond RTT), where the mode only
-changes when the dashboard slider injects delay. **Every deployment has a different baseline**, so
-measure it before a run:
+`HIGH_MS`/`LOW_MS` are calibrated for a healthy LAN (sub-millisecond RTT), where the mode changes
+only when the slider injects delay. **Every deployment has a different baseline**, so measure it
+before a run:
 
 1. Start X and Y with the dashboard slider at `0`.
 2. Watch `rtt_ms` on the dashboard or in `logs/log_y.csv` for ~30 s.
@@ -628,118 +441,146 @@ measure it before a run:
 
    Use the same values on every run so results are comparable.
 
-On a LAN the baseline is typically 1–5 ms. On a Tailscale path it may be 20–80 ms; if
-`tailscale ping <peer>` reports `via DERP`, expect the higher end and set both thresholds above
-it. Otherwise Y may sit in fallback permanently or flap.
-
-All stream-quality knobs (`FYP_X_STREAM_EVERY`, `FYP_X_QUALITY`, `FYP_X_SIZE`, …) are environment
-variables too, so a remote deployment can be tuned without editing the tracked file.
+On a LAN the baseline is typically 1–5 ms. On Tailscale it may be 20–80 ms; if
+`tailscale ping <peer>` reports `via DERP`, expect the higher end and set both thresholds above it.
+Otherwise Y may sit in fallback permanently or flap. The same applies to
+`FYP_BAD_COUNT` (require a longer bad streak on a noisy link).
 
 ---
 
-## Deploying across different networks (WAN)
+## Output & Logs
 
-Putting X, Y and Z on three different networks (home broadband, a lab LAN, a phone hotspot)
-rules out port forwarding: the hotspot is behind carrier-grade NAT and campus networks rarely
-accept inbound connections. Use a **mesh overlay VPN** instead. It traverses NAT automatically,
-encrypts the traffic, and gives each machine a stable address and name — so `common/config.py`
-does not change when an ISP hands out a new IP.
+All three tiers write into **`logs/`** (git-ignored except `.gitkeep`); files are truncated on each
+start. `logs/reports/` holds test reports; `logs/raw/` holds archived historical logs.
 
-Tailscale is the least-effort option (ZeroTier or NetBird work the same way). It is **optional on
-one LAN** and **required when the three machines are on different networks**.
+`logs/log_x.csv` — written by Cloud X for every rendered frame:
 
-### Tailscale checklist
+| Column | Meaning |
+|--------|---------|
+| `unix_time` | wall-clock timestamp of the render |
+| `tick` | game tick in the frame header |
+| `seq` | input sequence in the frame header |
+| `codec` | `h264` or `jpeg` |
+| `key` | `1` for an IDR/keyframe |
+| `encode_ms` | render + encode time |
+| `frame_bytes` | encoded payload size |
 
-1. Install Tailscale on X, Y and Z and sign all three into the same tailnet.
-2. On each machine, run `tailscale up`, then record the values in
-   [Before You Start](#before-you-start--record-your-addresses):
+`logs/log_y.csv` — written by Middle Y every 0.2 s:
 
-   ```powershell
-   tailscale status
-   tailscale ip -4
-   ```
+| Column | Meaning |
+|--------|---------|
+| `unix_time` | wall-clock timestamp |
+| `mode` | active tier (`X` or `Y`) |
+| `rtt_ms` | smoothed X↔Y RTT |
+| `injected_delay_ms` | current injected X↔Y delay |
+| `e2e_ms_from_Z` | last input→display latency reported by Z |
+| `rtt_zy_ms_from_Z` | Z↔Y RTT reported by Z |
+| `x_link` | `1` while the WebSocket to X is up |
 
-3. Name the devices in the admin console (for example `x-home`, `y-lab`, `z-mobile`), enable
-   MagicDNS if you want to use names instead of `100.x` addresses, and disable key expiry for the
-   demo devices.
-4. Allow inbound TCP `8001` on X and `8000`/`8002` on Y for the active adapter profile. Z needs no
-   inbound rule. See [Start the System](#start-the-system) for the firewall commands.
-5. Start the tiers with the tailnet values — the same launchers and order as a LAN run:
+`logs/log_z.csv` — written by End Z for every displayed frame matching an input:
 
-   ```powershell
-   .\run_x.cmd
-   .\run_y.cmd <X_TAILNET_NAME>      # or <X_TAILNET_IP>
-   .\run_z.cmd <Y_TAILNET_NAME>      # or <Y_TAILNET_IP>
-   ```
+| Column | Meaning |
+|--------|---------|
+| `unix_time` | wall-clock timestamp of display |
+| `source` | tier that produced the frame (`X`/`Y`) |
+| `codec` | `h264` or `jpeg` |
+| `tick` | game tick carried in the frame header |
+| `first` | `1` for the first frame for this input seq |
+| `e2e_ms` | input→display latency |
+| `decode_ms` | decode time (H.264, off the event loop) |
+| `rtt_zy_ms` | current Z↔Y RTT |
 
-   Dashboard: `dashboard.html?ip=<Y_DASHBOARD_ADDRESS>`.
+Use only `first=1` rows for latency statistics; repeats for the same input would inflate p50. The
+`e2e_ms` sent to Y and shown on the dashboard is updated only on `first=1` frames. Y flushes on
+every sample; Z flushes every 30 frames.
 
-The startup banner prints the **physical LAN address**, not the tailnet address — use
-`tailscale ip -4` or the MagicDNS name when configuring the peers. `tailscale ping <peer>` shows
-whether a hop is direct or relayed through DERP; a relayed path adds tens of milliseconds and is
-worth reporting. `tailscale netcheck` explains why a direct path was not established. If the
-overlay cannot be installed on a managed machine, expose Y with a reverse tunnel (for example
-Cloudflare Tunnel) and run Z through the same client — it works, but adds latency.
-
-If a laptop roams between networks, shorten dead-link detection with
-`$env:FYP_PING_INTERVAL="5"; $env:FYP_PING_TIMEOUT="5"` on that machine. Y re-dials X every 2 s
-and Z re-dials Y every ~1 s, so the session recovers on its own after a network change.
-
-### Bandwidth and data cost
-
-| Mode | Frame | Rate | Downstream to Z | Mobile data |
-|------|-------|------|-----------------|-------------|
-| `CLOUD X` (H.264) | ~4–10 KB (1280×720, 4 Mbps cap) | 60 fps | ~2–5 Mbps | ~15–35 MB/min |
-| `CLOUD X` (JPEG) | ~40–60 KB (1280×720 q80) | 60 fps | ~20–30 Mbps | ~170–230 MB/min |
-| `EDGE Y` (H.264) | ~4–8 KB (960×540, 2 Mbps cap) | 30 fps | ~1–2 Mbps | ~7–15 MB/min |
-
-H.264 typically cuts the cloud stream by an order of magnitude at comparable quality. X targets
-`FYP_X_BITRATE` (default 4 Mbps) and falls back to JPEG when PyAV or the capability handshake is
-unavailable. If a link still cannot cope, set `FYP_X_STREAM_EVERY=2` (30 fps) **on both X and Z**
-or lower `FYP_X_BITRATE`/`FYP_X_SIZE`. While Y is in fallback, X stops sending video entirely
-until the mode returns to `CLOUD X`. On a mobile hotspot, prefer short runs.
-
-The average bitrate is only half the story: a single 720p keyframe is ~100–120 KB with the VBV cap.
-At a 20 Mbps uplink that is a 40–50 ms burst, so keyframes — not the average — set the p95/p99
-latency. The defaults use GOP 120 (0.5 keyframes/s); `FYP_X_INTRA_REFRESH=1` on **X and Z** removes
-the periodic IDR entirely (max frame ~20–50 KB). That is the recommended setting when the uplink
-is the jitter bottleneck.
-
-### Experiment design for a WAN
-
-- Measure the X↔Y baseline at slider 0 (`rtt_ms`), then fix `FYP_HIGH_MS`/`FYP_LOW_MS` for all runs.
-- Run 60 s in `CLOUD X`, sweep the slider 0 → 400 → 0 ms, then 60 s again.
-- Record `logs/log_x.csv` (X), `logs/log_y.csv` (Y) and `logs/log_z.csv` (Z); report p50/p95 `e2e_ms` per mode, the
-  switch/recovery times, both RTTs (`rtt_ms`, `rtt_zy_ms`) and the bitrate from `logs/log_x.csv`.
-- Keep **Y near Z** for the strongest result (same lab Wi-Fi) and put X far away (cloud VM in
-  another region). The fully distributed setup — X at home, Y in the lab, Z on a hotspot — is a
-  good secondary run, but there the last hop is itself a mobile WAN link, so part of the edge
-  benefit is consumed by it.
+Test reports (`logs/reports/<id>.json` + `.csv`) contain the plan, environment, events, 5 Hz
+samples and the p50/p90/p99/max summary; see [docs/test-panel.md](docs/test-panel.md).
 
 ---
 
-## Troubleshooting (three-machine runs)
+## Verification
+
+### Determinism / resync
+
+Run on **both** Cloud X and Middle Y:
+
+```powershell
+.\venv\Scripts\python.exe selftest.py
+```
+
+It plays a fixed 3000-tick script, performs a JSON round-trip and restore on a differently-seeded
+instance, and prints:
+
+```
+host: <machine> | <OS build>
+python <ver> | pygame <ver> | pillow <ver> | websockets <ver>
+ticks 3000 score <n> deaths <n> hash <md5>
+resync OK
+render bytes: <X bytes> (X) <Y bytes> (Y)
+```
+
+The **hash must be identical on both machines** and `resync OK` must be printed. Compare the
+version lines too: a different Python version is the most likely reason for a mismatch.
+
+### Unit tests
+
+```powershell
+.\venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Covers the game core, config clamping, snapshot/restore determinism, test-plan validation/timeline
+and report writing.
+
+### Test runner
+
+```powershell
+.\venv\Scripts\python.exe tools\test_cli.py `
+    --y ws://127.0.0.1:8002 --plan tools\plans\phase1_smoke.json
+```
+
+### X capacity check
+
+Start X alone, play for a minute, then inspect `logs/log_x.csv`: `encode_ms` is render+encode,
+`frame_bytes` the encoded size, and `key` marks IDRs. On the reference machine (libx264 ultrafast,
+GOP 120, VBV) render+encode is **~5–6 ms** at 720p/60, average bitrate **~3–4 Mbps**, and
+keyframes are **~100–120 KB**.
+
+A keyframe must fit the uplink's burst budget: 120 KB at 20 Mbps is ~48 ms, which is the periodic
+hitch. GOP 120 makes those bursts rare (0.5/s); `FYP_X_INTRA_REFRESH=1` on X and Z removes them
+entirely (max frame ~20–50 KB).
+
+---
+
+## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | `X link down (ConnectionRefusedError ...)` on Y | X not running, wrong `FYP_X_IP`, wrong port, or firewall | Start X; `Test-NetConnection <X_ADDRESS> -Port 8001` from Y; add the inbound rule |
 | Z shows `reconnecting to Y ...` | Y not running or port 8000 blocked | Start Y; `Test-NetConnection <Y_ADDRESS> -Port 8000` from Z |
-| Dashboard says `disconnected - retrying` | Wrong address in `?ip=`, or port 8002 blocked | Re-open with `dashboard.html?ip=<Y_DASHBOARD_ADDRESS>`; check the Y firewall rule |
+| Dashboard says `disconnected - retrying` | Wrong address in `?ip=`, or port 8002 blocked | Re-open with `web/dashboard.html?ip=<Y_DASHBOARD_ADDRESS>`; check the Y firewall rule |
 | Dashboard opens but stays `connecting` | Y not running, wrong address, or 8002 blocked | Run `Get-NetTCPConnection -LocalPort 8002 -State Listen` on Y; retry with `?ip=127.0.0.1` |
 | `selftest.py` hashes differ | Different Python versions on X and Y (most likely), or a modified `common/game.py` | Install the same 3.13.x and the pinned `requirements.txt` on both, then re-run |
-| Mode never switches when the slider moves | Slider changed on a dashboard attached to a different Y, or X link is down | Check the dashboard's `Cloud X link` field; edit `HIGH_MS`/`LOW_MS` only if the real RTT baseline is high |
+| Mode never switches when the slider moves | Slider on a dashboard attached to a different Y, or X link is down | Check the dashboard's `Cloud X link` field; edit `HIGH_MS`/`LOW_MS` only for a high real baseline |
 | The startup banner shows a `10.x` address | A full-tunnel VPN owns the default route | Quit the full-tunnel VPN, then restart the tier. A `100.x` address is normal when Tailscale is connected. |
-| `OSError: [WinError 10048]` (port in use) | Another instance or another app holds the port | `Get-NetTCPConnection -LocalPort 8001 -State Listen`, stop that process; `run_local.cmd` also stops stale FYP processes |
-| Z window never appears, but the terminal is running | `SDL_VIDEODRIVER=dummy` was inherited from a test shell, or an old X/Y is holding the ports | Re-run `run_local.cmd` (it clears SDL and stale FYP processes); for a manual Z start, run `set SDL_VIDEODRIVER=` first |
-| Frame rate drops, `encode_ms` consistently above ~16 ms in `logs/log_x.csv` | X's render+encode is the bottleneck | Set `X_STREAM_EVERY=2` (30 fps) **on X and Z**, or lower `X_SIZE`/`X_QUALITY` |
-| Z shows ~3 fps or only keyframes in `EDGE Y` | `FYP_Y_STREAM_EVERY` differs between Y and Z, so Z treats every normal 2-tick frame as a lost frame | Use the same `FYP_Y_STREAM_EVERY` (and `FYP_X_STREAM_EVERY`) on the encoding tier and on Z |
-| Periodic 50 fps hitch / latency spike every ~2 s | A 100–120 KB keyframe burst exceeds the uplink's frame budget | Keep GOP 120 + VBV (default), try `FYP_X_SIZE=960x540`, or `FYP_X_INTRA_REFRESH=1` on **X and Z** |
-| Intra-refresh: Z freezes after a gap | Z is not started with `FYP_X_INTRA_REFRESH=1`, so it waits for a keyframe that never comes | Restart Z with the same value as X; it then keeps decoding through a gap |
-| Many X↔Y switches with a ~30 ms baseline | Default 80/50 thresholds are too tight for a WAN, and the cloud stream is saturating the link | Calibrate `FYP_HIGH_MS` ≈ p50 + 35, `FYP_LOW_MS` ≈ p50 + 15, raise `FYP_BAD_COUNT`; lower `FYP_X_BITRATE` on X |
+| `OSError: [WinError 10048]` (port in use) | Another instance or another app holds the port | `Get-NetTCPConnection -LocalPort 8001 -State Listen`, stop that process |
+| **Two Ys or two Zs are running** | Duplicate launchers (or stale processes) share the dashboard/game state | `Get-CimInstance Win32_Process -Filter "Name='python.exe'"` → kill all but **one** Y and **one** Z; `run_local.cmd` also clears stale FYP processes |
+| Z window never appears, but the terminal is running | `SDL_VIDEODRIVER=dummy` inherited from a test shell, or an old X/Y holds the ports | Re-run `run_local.cmd`; for a manual Z start, `set SDL_VIDEODRIVER=` first |
+| Frame rate drops, `encode_ms` above ~16 ms in `logs/log_x.csv` | X render+encode is the bottleneck | Set `X_STREAM_EVERY=2` (30 fps) **on X and Z**, or lower `X_SIZE`/`X_QUALITY` |
+| Z shows ~3 fps or only keyframes in `EDGE Y` | `FYP_Y_STREAM_EVERY` differs between Y and Z | Use the same `FYP_Y_STREAM_EVERY` (and `FYP_X_STREAM_EVERY`) on the sender and Z |
+| Periodic 50 fps hitch / latency spike every ~2 s | A 100–120 KB keyframe burst exceeds the uplink budget | Keep GOP 120 + VBV, try `FYP_X_SIZE=960x540`, or `FYP_X_INTRA_REFRESH=1` on **X and Z** |
+| Intra-refresh: Z freezes after a gap | Z is not started with `FYP_X_INTRA_REFRESH=1` | Restart Z with the same value as X |
+| Many X↔Y switches with a ~30 ms baseline | Default 80/50 thresholds are too tight for a WAN | Calibrate `FYP_HIGH_MS` ≈ p50 + 35, `FYP_LOW_MS` ≈ p50 + 15, raise `FYP_BAD_COUNT` |
+| `test_start` replies “no End Z is connected” | Z not in test mode / not connected | Start Z with `FYP_TEST=1`; check Y’s `Z connected` |
+| Test pauses immediately / no frames | Duplicate Y/Z processes or a paused runner | Kill duplicates; check `state["test"]["state"]`; resume from the panel |
+| Report has no X encode | Phase 3 X `stats` not implemented yet | Expected in Phase 1/2; use `logs/log_x.csv` |
+| Report `duration_s` > plan duration | Wall time includes warm-up and pauses | Compare `plan.duration_s` with sample `t` |
 
-Keep the machines awake for the demo (`powercfg /change standby-timeout-ac 0`) and, if you will
-merge `logs/log_y.csv` with `logs/log_z.csv` by `unix_time`, synchronise the clocks (`w32tm /resync`).
+Keep the machines awake for the demo (`powercfg /change standby-timeout-ac 0`) and, if you merge
+`logs/log_y.csv` with `logs/log_z.csv` by `unix_time`, synchronise the clocks (`w32tm /resync`).
 The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not depend on clock sync.
+
+---
 
 ## Known Limitations
 
@@ -747,22 +588,42 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
   delay only — there is no packet loss, reordering or jitter, and a stalled TCP segment stalls
   every later frame (head-of-line blocking). A production cloud-gaming stack would use UDP/WebRTC.
 - **Measured RTT includes X's own processing.** Pongs are answered from the same loop that renders
-  frames, so a busy X inflates `rtt_ms`. This is realistic "cloud lag", but it is not network-only.
+  frames, so a busy X inflates `rtt_ms`. This is realistic “cloud lag”, but it is not network-only.
 - **Lock-step replay.** X advances only on inputs forwarded by Y, so in `CLOUD X` mode the frame Z
   displays corresponds to a state roughly one RTT old. Switching back from `EDGE Y` can therefore
   show a brief rewind.
-- **Injection point.** The dashboard slider delays only the X↔Y leg, which is exactly the cloud leg
-  the edge tier is meant to hide; the Z↔Y hop is untouched.
+- **Injection point.** The dashboard slider and the test timeline delay only the X↔Y leg — exactly
+  the cloud leg the edge tier is meant to hide; the Z↔Y hop is untouched.
 - **One game, one input.** Multiple Z clients can watch, but they share a single input state and
   there is one game instance per Y.
-- **Fixed encoding settings.** X and Y use H.264 at a fixed target bitrate/GOP
-  (`FYP_X_BITRATE`/`FYP_X_GOP`, `FYP_Y_BITRATE`/`FYP_Y_GOP`) with JPEG fallback; there is no
-  adaptive bitrate or congestion control. X additionally uses a VBV buffer (`0.5 s`), no scene-cut
-  IDRs, and optionally intra-refresh. A dropped frame is repaired by the next keyframe, or sooner
-  when Z requests an IDR.
+- **Fixed encoding settings until Phase 3.** X and Y use H.264 at a fixed target bitrate/GOP with
+  JPEG fallback; there is no adaptive bitrate or congestion control. X uses a VBV buffer (0.5 s),
+  no scene-cut IDRs, and optionally intra-refresh. A dropped frame is repaired by the next
+  keyframe, or sooner when Z requests an IDR. The Phase 3 panel will switch GOP/resolution/
+  intra-refresh at runtime.
+- **Test panel UI.** Phase 1 is the protocol/CLI; the Tk panel is Phase 2, so progress and report
+  access are currently terminal-based.
+- **Phase A archive.** A0/A1/A2 (GOP30 vs GOP120 vs 540p on the old X) are only reproducible with
+  the old `4f189b9` code; the lab X stays pinned until that decision is made.
+
+---
+
+## Documentation
+
+- [docs/test-panel.md](docs/test-panel.md) — test protocol, plan/report schema, Phase 2/3 plan.
+- [docs/latency-notes.md](docs/latency-notes.md) — Wi-Fi/client-isolation/DERP findings and threshold calibration.
+- [docs/archive/GAME_MVP_PLAN.md](docs/archive/GAME_MVP_PLAN.md) — historical milestone plan.
+- `sync.txt` — live cross-tier handoff log (root; updated by the machines).
 
 ---
 
 ## License
 
 Academic research project — provided as-is for educational use.
+
+
+
+
+
+
+

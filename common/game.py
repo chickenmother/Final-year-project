@@ -8,6 +8,9 @@ Changes vs the original (needed for the network setup):
   * original ran at 240 FPS; we run 60 network ticks/s, each tick = 4 original frames (SUBSTEPS)
   * when the player crashes the game restarts (original just quit) so the test can run forever
   * pygame sprites replaced by plain Rects so the state is easy to snapshot
+
+This module is the legacy deterministic game used by ``selftest.py`` as a
+cross-tier reference oracle. The X/Y runtime uses ``game/simulation.py``.
 """
 import io
 import os
