@@ -1,6 +1,6 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-21 11:25 +09:00   (from Y / home PC)
+Last updated : 2026-11-21 14:58 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
@@ -744,6 +744,16 @@ HEAD   : 7d54592  "Phase B: keyframe storm fix, VBV, 120 Hz, threaded decode"
 
   docs/test-panel.md now marks `mode` as legacy and `placement` as planned.
   No code changes. Lab X remains pinned to 4f189b9; do NOT pull on X.
+
+[2026-11-21 14:58 +09:00 | from Y / home PC — docs + AGENTS workflow]
+  - Moved docs/latency-notes.md -> docs/notes/latency-notes.md.
+  - Kept docs/test-panel.md at the docs root as the guide; added docs/guides/.
+  - Added .gitkeep in docs/notes, docs/plans, docs/guides.
+  - Added AGENTS.md + docs/References/ (placement, research, plans, sync,
+    implementation). AGENTS now has the machine table, commands, current
+    phase/branch, lab X pin, duplicate-Y/Z warning and no-push/PR/pull rule.
+  - Updated README Directory Structure and Documentation links.
+  - No code changes. Lab X remains pinned to 4f189b9; no push/commit.
 
 END OF SYNC
 

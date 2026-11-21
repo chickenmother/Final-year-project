@@ -135,6 +135,7 @@ FYP/
 ├── x_server.py                  # Cloud X — game engine + high-quality renderer
 ├── y_gateway.py                 # Middle Y — proxy, fallback renderer, RTT, dashboard + test runner
 ├── z_client.py                  # End Z — menu/test mode, input sampling, frame display
+├── AGENTS.md                    # agent workflow, machine table, no-push/pull
 ├── sync.txt                     # live cross-tier handoff log (root)
 ├── common/
 │   ├── config.py                # env-overridable addresses, ports, codecs, thresholds
@@ -168,8 +169,20 @@ FYP/
 │   ├── test_testplan.py
 │   └── test_report.py
 ├── docs/
-│   ├── latency-notes.md         # Wi-Fi/DERP findings and threshold calibration
-│   ├── test-panel.md            # test protocol, reports, Phase 2/3 plan
+│   ├── test-panel.md            # test protocol, reports, Phase 2/3 plan (guide)
+│   ├── notes/
+│   │   ├── .gitkeep
+│   │   └── latency-notes.md     # Wi-Fi/DERP findings and threshold calibration
+│   ├── guides/
+│   │   └── .gitkeep
+│   ├── plans/
+│   │   └── .gitkeep
+│   ├── References/
+│   │   ├── implementation.md
+│   │   ├── placement.md
+│   │   ├── plans.md
+│   │   ├── research.md
+│   │   └── sync.md
 │   └── archive/
 │       └── GAME_MVP_PLAN.md     # historical milestone plan
 ├── images/                      # required on X and Y only (Z needs none)
@@ -689,8 +702,14 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
 ## Documentation
 
 - [docs/test-panel.md](docs/test-panel.md) — test protocol, plan/report schema, Phase 2/3 plan.
-- [docs/latency-notes.md](docs/latency-notes.md) — Wi-Fi/client-isolation/DERP findings and threshold calibration.
+- [docs/notes/latency-notes.md](docs/notes/latency-notes.md) — Wi-Fi/client-isolation/DERP findings and threshold calibration.
+- [docs/References/placement.md](docs/References/placement.md) — folder rules and root-file policy.
+- [docs/References/research.md](docs/References/research.md) — research/citation rules.
+- [docs/References/plans.md](docs/References/plans.md) — plan template.
+- [docs/References/sync.md](docs/References/sync.md) — sync entry format.
+- [docs/References/implementation.md](docs/References/implementation.md) — implementation rules.
 - [docs/archive/GAME_MVP_PLAN.md](docs/archive/GAME_MVP_PLAN.md) — historical milestone plan.
+- `AGENTS.md` — agent workflow, current machine assignment, no-push/pull.
 - `sync.txt` — live cross-tier handoff log (root; updated by the machines).
 
 ---
