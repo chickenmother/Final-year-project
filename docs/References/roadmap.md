@@ -1,8 +1,8 @@
 # Roadmap, schedule and workstreams
 
-Status: 2026-11-23. Branch `feature/Cloud_X`, HEAD `f334298`. This file is the single
-source of truth for workstreams, schedule and current progress. The WS naming/docs
-change is uncommitted until the user approves a commit.
+Status: 2026-11-23. Branch `feature/Cloud_X`, HEAD `57e2fe5`. This file is the single
+source of truth for workstreams, schedule and current progress. The WS naming/docs and
+WS1.3 are committed; the dev/feature/release model is in `docs/References/branches.md`.
 
 ## Naming
 
@@ -116,7 +116,7 @@ evidence stays traceable; this file is the mapping.
 
 ## Risks / blockers
 
-- Duplicate Y/Z processes invalidate runs; only one pair at a time (AGENTS section 8).
+- Duplicate Y/Z processes invalidate runs; only one pair at a time (AGENTS cleanup rule).
 - WS1.3 needs the lab X listening and a stable A1/Z configuration for comparison.
 - The task router/placement (WS3) is the largest remaining block; L and U are placeholders.
 - Final report needs WS1.3 and WS3.2/3.3 results; do not overrun the FYP schedule.
@@ -130,3 +130,4 @@ evidence stays traceable; this file is the mapping.
 - `docs/References/commands.md` - setup/run/test commands.
 - `AGENTS.md` - universal rules and references.
 - `sync.txt` - cross-tier handoff log.
+- `docs/References/branches.md` - branch model and node packaging.

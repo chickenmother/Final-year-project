@@ -462,6 +462,12 @@ WS2.1 command reference and the report schema: [docs/test-panel.md](docs/test-pa
 
 ---
 
+## Branching and releases
+
+Development uses `dev` plus short-lived `feature/wsX.Y-*` branches; `main` is stable and tagged. The X/Y/Z split is a **release/packaging** step, not a development branch split. At release time create `release/x`, `release/y`, `release/z` from a stable `main` tag (or generate `dist/x|y|z` bundles); each contains only that node’s entry point and the shared modules it imports. `tests/`, `tools/`, `docs/`, `AGENTS.md` and `sync.txt` stay on `dev`/`main`. The current `feature/Cloud_X` is a working branch for the whole 3-tier, not an X-only branch. Details: [docs/References/branches.md](docs/References/branches.md).
+
+---
+
 ## Configuration
 
 ### Gameplay configuration
@@ -701,7 +707,7 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
 - **Test panel UI.** WS2.1 is the protocol/CLI; the Tk panel is WS2.2, so progress and report
   access are currently terminal-based.
 - **WS1.1 archive (historical).** A0/A1/A2 (GOP30 vs GOP120 vs 540p on the old X) are only reproducible with
-  the old `4f189b9` code. The current lab X is at `cda0f52` (WS1.2); WS1.3 post-fix verification is pending.
+  the old `4f189b9` code. The current lab X is at `cda0f52` (WS1.2); WS1.3 post-fix verification is complete (`20261123-153034`); the current RTT is higher, so a repeat is queued.
   The `logs/raw/phaseA_*` folder names are historical; `docs/References/roadmap.md` maps them.
 
 ---
@@ -710,6 +716,7 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
 
 - [docs/test-panel.md](docs/test-panel.md) — test protocol, plan/report schema, WS2.2/WS2.3 plan.
 - [docs/References/roadmap.md](docs/References/roadmap.md) — workstreams, schedule, current progress and next step.
+- [docs/References/branches.md](docs/References/branches.md) — branch model (dev/feature/release), node bundles, migration.
 - [docs/notes/latency-notes.md](docs/notes/latency-notes.md) — Wi-Fi/client-isolation/DERP findings and threshold calibration.
 - [docs/References/context.md](docs/References/context.md) — topology, machines, current status.
 - [docs/References/commands.md](docs/References/commands.md) — setup/run/test commands.

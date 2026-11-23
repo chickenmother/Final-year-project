@@ -813,5 +813,12 @@ HEAD   : 0df8de5  "Sync: record WS naming commit/push"
   - Report is in logs/reports/20261123-153034.json/.csv. Lab X log still needed.
   - Next: WS2.2 Tk panel; repeat WS1.3 after RTT/network recalibration.
 
+[2026-11-23 16:00 +09:00 | from Y / home PC — branch/release model documented]
+  - Added docs/References/branches.md: main/dev/feature/release; node split at release; X/Y/Z bundles.
+  - README: Branching and releases section; documentation link; WS1.3 archive status corrected.
+  - AGENTS reference; roadmap status/HEAD and related docs; cleanup-rule wording.
+  - Docs-only validation; 27 tests + selftest unchanged; no code changes.
+  - Next: create dev + feature/ws2.2-test-panel; WS2.2 Tk panel.
+
 END OF SYNC
 
