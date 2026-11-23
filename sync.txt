@@ -1,6 +1,6 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-21 14:58 +09:00   (from Y / home PC)
+Last updated : 2026-11-23 14:33 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
@@ -754,6 +754,33 @@ HEAD   : 7d54592  "Phase B: keyframe storm fix, VBV, 120 Hz, threaded decode"
     phase/branch, lab X pin, duplicate-Y/Z warning and no-push/PR/pull rule.
   - Updated README Directory Structure and Documentation links.
   - No code changes. Lab X remains pinned to 4f189b9; no push/commit.
+
+[2026-11-23 14:25 +09:00 | from Y / home PC — AGENTS process-cleanup rule; stale Y cleanup]
+  - AGENTS.md section 8: after testing, implementation or debugging, kill every
+    test process and terminal started (test Y/Z/X, test_cli.py, autoplay,
+    background Start-Process/console); no stale listeners on 8000/8001/8002;
+    verify with Get-NetTCPConnection and Get-CimInstance; only requested
+    long-running tiers may stay up.
+  - Applied it: killed the stale Ys (PIDs 20320, 9748); 8000/8002 free; no
+    y_gateway/z_client/test_cli processes left.
+  - Lab X was pulled to cda0f52; Phase A A0/A1/A2 archived under logs/raw.
+  - No push. Next: start X + one Y/Z, Phase B smoke, Phase 2 Tk panel.
+
+[2026-11-23 14:31 +09:00 | from Y / home PC — AGENTS rule-authoring/reference rule]
+  - AGENTS.md section 9: universal rules stay in AGENTS.md; task-specific rules
+    go to docs/References/<topic>.md with a one-line pointer and a “read when…”
+    note; do not inline task-specific detail or read unused references (saves
+    the agent context/token window). Existing placement/research/plans/sync
+    references are the examples.
+  - No new reference needed for this rule (it is universal).
+  - No code changes. No commit/push.
+
+[2026-11-23 14:33 +09:00 | from Y / home PC — AGENTS tidy per rule 9]
+  - AGENTS.md reduced to universal rules + “read when…” pointers.
+  - Topology/machines/current status moved to docs/References/context.md.
+  - Commands/environment moved to docs/References/commands.md.
+  - README Directory Structure/Documentation updated for the new references.
+  - No code changes. No commit/push.
 
 END OF SYNC
 

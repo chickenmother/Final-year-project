@@ -1,75 +1,26 @@
 # AGENTS instructions
 
-## 1. Final-year-project
+This repository is my final-year project: a 3-tier cloud-gaming latency simulator
+(Cloud X → Edge Y → Client Z). The README has the architecture and task model.
 
-This repository is my final-year project (fourth-year undergraduate).
-The project studies the network latency of cloud services, applied to cloud gaming.
+These are the universal rules. Task-specific detail lives in `docs/References/`
+and is read only when the current task needs it.
 
-## 2. Brief Architecture
+## Universal rules
 
-### Node placement
+1. **Research** — before answering/implementing, follow `docs/References/research.md` (read when researching).
+2. **Plan** — create a plan before implementation; `docs/References/plans.md`; put it in `docs/plans/`.
+3. **Placement** — follow `docs/References/placement.md` only when creating/moving files.
+4. **After implementation** — append an entry to `sync.txt` per `docs/References/sync.md`; run tests/selftest; update `README.md` if user-facing paths/commands changed.
+5. **Push/pull** — do not `git push`, open a PR, or `git pull` on the pinned lab X until I explicitly ask; ask before a local commit.
+6. **Cleanup** — after testing/implementation/debugging, kill every test process and terminal; no stale listeners on 8000/8001/8002; verify with `Get-NetTCPConnection -LocalPort 8000,8001,8002 -State Listen` and `Get-CimInstance Win32_Process -Filter "Name='python.exe'"`; only explicitly requested long-running tiers stay up.
+7. **Rule authoring** — universal rules stay here; task-specific rules go to `docs/References/<topic>.md` with a one-line pointer and a “read when…” note; do not inline task-specific detail or read unused references (saves context/token window).
 
-X -> Y -> Z
+## References (read only when needed)
 
-- X: Cloud
-- Y: Edge
-- Z: Client
-
-Input goes Z -> Y -> X; video returns X -> Y -> Z. The README Architecture section has the full baseline, task model A–E/L/U and the planned placement patterns.
-
-### Machines
-
-Placement is not fixed; I test different combinations. Current assignment:
-
-| Machine | Current role | Notes |
-|---|---|---|
-| Home desktop (chicken-mother) | Y (sometimes Z) | confirm current assignment |
-| Lab desktop (matslabsungky) | X | pinned to `4f189b9`; do not pull |
-| Laptop1 (andoryuuuspc) | Y or Z | |
-| Laptop2 (pc23-148d) | Z | |
-
-Only one Y and one Z should run at a time; stale duplicates share ports and state.
-
-### Current status
-
-- Phase 1 test runner/CLI shipped; Phase 2 Tk panel next; task-level placement/router/L planned.
-- Branch: `feature/Cloud_X`.
-- Lab X is pinned to `4f189b9`; no pull on X.
-- The home PC may have duplicate Y/Z processes; kill all but one pair before a run.
-
-## 3. File/Folder placement
-
-If you need to create new files or folders, follow `docs/References/placement.md`.
-Use the existing folders first; for anything that does not fit, discuss it with me and create a new folder at the repository root.
-
-## 4. Research
-
-Before answering questions or implementing anything, do the research.
-Follow `docs/References/research.md`; keep sources and citations in `docs/notes/`.
-
-## 5. Implementation
-
-- Create a plan first if none exists; follow `docs/References/plans.md` and put it in `docs/plans/`.
-- After implementation, append an entry to `sync.txt` following `docs/References/sync.md`.
-- Run the tests/selftest and update `README.md` if user-facing paths or commands changed.
-
-## 6. Commands
-
-```powershell
-py -3.13 -m venv venv
-.\venv\Scripts\python.exe -m pip install -r requirements.txt
-.\run_local.cmd
-.\venv\Scripts\python.exe selftest.py
-.\venv\Scripts\python.exe -m unittest discover -s tests -v
-.\venv\Scripts\python.exe tools\test_cli.py --y ws://127.0.0.1:8002 --plan tools\plans\phase1_smoke.json
-```
-
-- Python 3.13.9 on Windows/PowerShell.
-- Ports: X 8001, Y 8000, Y dashboard/test 8002.
-- Browser dashboard: `web/dashboard.html?ip=<Y_ADDRESS>`.
-- Unattended Z: `$env:FYP_TEST = "1"` before `run_z.cmd`.
-
-## 7. Push and Pull Request
-
-Do not `git push`, open a pull request, or `git pull` on the pinned lab X until I explicitly ask.
-Ask before making a local commit.
+- Context/topology/machines/current status — `docs/References/context.md`
+- Commands/environment — `docs/References/commands.md`
+- File/folder placement — `docs/References/placement.md`
+- Research/citations — `docs/References/research.md`
+- Plan format — `docs/References/plans.md`
+- Sync format — `docs/References/sync.md`

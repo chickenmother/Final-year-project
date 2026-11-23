@@ -178,6 +178,8 @@ FYP/
 │   ├── plans/
 │   │   └── .gitkeep
 │   ├── References/
+│   │   ├── commands.md
+│   │   ├── context.md
 │   │   ├── implementation.md
 │   │   ├── placement.md
 │   │   ├── plans.md
@@ -703,6 +705,8 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
 
 - [docs/test-panel.md](docs/test-panel.md) — test protocol, plan/report schema, Phase 2/3 plan.
 - [docs/notes/latency-notes.md](docs/notes/latency-notes.md) — Wi-Fi/client-isolation/DERP findings and threshold calibration.
+- [docs/References/context.md](docs/References/context.md) — topology, machines, current status.
+- [docs/References/commands.md](docs/References/commands.md) — setup/run/test commands.
 - [docs/References/placement.md](docs/References/placement.md) — folder rules and root-file policy.
 - [docs/References/research.md](docs/References/research.md) — research/citation rules.
 - [docs/References/plans.md](docs/References/plans.md) — plan template.
