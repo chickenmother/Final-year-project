@@ -1,11 +1,11 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-23 15:26 +09:00   (from Y / home PC)
+Last updated : 2026-11-23 15:37 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
-HEAD   : c4aca37  "WS naming: unify workstreams, rename plans, add roadmap and schedule"
-         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 smoke pending)
+HEAD   : 0df8de5  "Sync: record WS naming commit/push"
+         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 complete)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
@@ -802,6 +802,16 @@ HEAD   : c4aca37  "WS naming: unify workstreams, rename plans, add roadmap and s
   - This sync entry is a separate follow-up commit.
   - Lab X remains at cda0f52; no lab X pull; no further code changes.
   - Next: WS1.3 post-fix smoke (needs the lab X + one Y/Z).
+
+[2026-11-23 15:37 +09:00 | from Y / home PC — WS1.3 post-fix measurement]
+  - Report 20261123-153034; plan WS1.3-A1, mode=cloud forced, 5+60 s.
+  - Result: e2e p50 79.2 / p90 108.94 / p99 263.96 / max 461.8 ms;
+    RTT p50 63.0 / p90 82.16 / max 216.4 ms; X 60.0 fps, Z 59.8 fps;
+    Z decode p50 2.9 ms; X encode unavailable until WS2.3.
+  - WS1.1-A1 was e2e p50 62.4 / p90 85.8; WS1.3 is worse, consistent with
+    the higher current RTT. First attempt auto-switched to Y and is invalid.
+  - Report is in logs/reports/20261123-153034.json/.csv. Lab X log still needed.
+  - Next: WS2.2 Tk panel; repeat WS1.3 after RTT/network recalibration.
 
 END OF SYNC
 

@@ -9,7 +9,7 @@
 | **Institution** | Kyushu Sangyo University, Department of Information Science |
 | **Programme** | Final Year Project |
 | **Academic Year** | 2025/2026 |
-| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 test runner/CLI shipped; WS1.2 fix in the lab X; WS1.3 post-fix smoke next; WS2.2 Tk panel next; task-level placement (WS3) planned |
+| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 test runner/CLI shipped; WS1.3 post-fix smoke completed (`20261123-153034`); WS2.2 Tk panel next; task-level placement (WS3) planned |
 
 A final year project modelling a **3-tier vertical cloud gaming architecture** — **End Node (Z) → Middle Edge Gateway (Y) → Cloud Server (X)** — under simulated network latency degradation.
 

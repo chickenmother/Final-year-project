@@ -44,10 +44,10 @@ WS4.1 and WS4.3 run throughout. Adjust the sequence to the FYP deadline.
 ## Current state (verified 2026-11-23)
 
 - Repo `feature/Cloud_X`, HEAD `f334298`; this naming/docs change is uncommitted.
-- Lab X is at `cda0f52` (contains the WS1.2 fix); `x_server` is not listening on home 8001.
+- Lab X is at `cda0f52` (contains the WS1.2 fix); `x_server` is listening on 8001 (Tailscale, verified 2026-11-23).
 - Home Y is running (PID 3764, ports 8000/8002); one Y; no Z or test runner visible.
-- Reports: WS1.1 A0/A1/A2 only; no WS1.3 report. The user's current-system test worked,
-  but it is not a captured WS1.3 measurement.
+- Reports: WS1.1 A0/A1/A2 and WS1.3-A1 `20261123-153034` (mode X; e2e p50 79.2 / p90 108.94).
+  WS1.3 is worse than WS1.1-A1 (62.4 / 85.8); the current RTT is higher (p50 63 / p90 82).
 - Validation gate for this change: 27 unit tests, selftest hash, and all test plans load.
 
 ## Current progress
@@ -59,7 +59,7 @@ WS4.1 and WS4.3 run throughout. Adjust the sequence to the FYP deadline.
 | WS0.3 Baseline 3-tier | Done | X authoritative + Y fallback + Z display |
 | WS1.1 Baseline | Done/archived | presets A0/A1/A2 under `logs/raw/phaseA_*` |
 | WS1.2 Keyframe fix | Code done | `7d54592`; lab X at `cda0f52`; local 60 fps, 0 skips, 0.55 kf/s |
-| WS1.3 Post-fix verification | **Next measurement** | `ws1_3_a1.json`; compare with WS1.1-A1 |
+| WS1.3 Post-fix verification | Done | report `20261123-153034` (mode X); e2e p50 79.2 / p90 108.94; WS1.1-A1 was 62.4 / 85.8 |
 | WS1.4 Network/adaptive | Planned | delay timeline exists; adaptive bitrate later |
 | WS2.1 Test runner/CLI | Done | `1c20dce`; 27 tests; plan/report protocol |
 | WS2.2 Tk panel | **Next build** | `tools/test_panel.py` |
@@ -85,12 +85,9 @@ first-frame e2e ~13.1 ms, decode ~3.9 ms; intra-refresh max frame ~17 KB.
 
 ## Next step
 
-1. Apply AGENTS section 8 cleanup: kill duplicate test processes; keep exactly one Y and one Z;
-   verify 8000/8001/8002 with `Get-NetTCPConnection`; do not disturb an explicitly requested tier.
-2. Start the lab X (`run_x.cmd`) at the pulled code; start one home Y/Z pair.
-3. Run WS1.3 with `tools/plans/ws1_3_a1.json` (preset A1, 5 s warm-up + 60 s measurement).
-4. Archive the WS1.3 report and X log; compare with WS1.1-A1 (and A0/A2 for context).
-5. Then build WS2.2 (`tools/test_panel.py`).
+1. Keep the WS1.3 report `20261123-153034` with the WS1.1 archive; copy the lab X log when available.
+2. Build WS2.2 (`tools/test_panel.py`): plan/timeline editor, Start/Pause/Resume/Terminate, live metrics, reports, Z window.
+3. Use the panel for the next WS1.3 repeat after the network/RTT is recalibrated.
 
 ## Old -> new mapping
 
