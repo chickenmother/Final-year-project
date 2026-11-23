@@ -1,8 +1,8 @@
 # Test Control Panel
 
-Status: **WS2.1 implemented** (commit `1c20dce`). WS2.2 is the Tk panel;
-WS2.3 adds runtime X video switching. This document is the protocol/report
-reference; the README has the short version.
+Status: **WS2.1 implemented** (`1c20dce`) and **WS2.2 implemented**
+(`tools/test_panel.py`). WS2.3 adds runtime X video switching. This document is
+the protocol/report reference; the README has the short version.
 
 ## Purpose
 
@@ -160,17 +160,45 @@ report after the run. Ctrl+C sends `test_stop`.
 
 ## WS2.2 — Tk panel
 
-`tools/test_panel.py` (Tk 8.6, stdlib) will provide:
+`tools/test_panel.py` (Tk 8.6, stdlib) is the desktop front end for the protocol
+above; `tools/panel_model.py` is its headless half (plan building/validation,
+timeline rows, progress/metrics formatting, dashboard payloads and message
+parsing) and is covered by `tests/test_panel_model.py`.
 
-- plan/preset editor, workload/mode/input/video/placement selectors (placement once the router lands)
-- timeline editor and visual markers
-- Start / Pause / Resume / Terminate, progress and phase
-- live Y/X/Z metrics and the current event
-- report history, JSON open and CSV export
-- Z process launch/focus (the pygame window is the actual game)
-- optional browser dashboard link for remote monitoring
+```powershell
+$env:FYP_TEST = "1"
+.\run_z.cmd <Y_IP>
 
-## WS2.3 — X runtime video
+.\venv\Scripts\python.exe tools\test_panel.py `
+    --y ws://<Y_IP>:8002 --plan tools\plans\ws2_1_smoke.json
+```
+
+The panel:
+
+- edits the plan (name, warm-up/duration, seed, workload, mode, video preset,
+  input pattern) with Apply/Load/Save and the bundled plans in `tools/plans/`;
+- edits timeline events (delay/mode/pattern/pause) and previews the timeline as
+  ASCII bars, one row per event kind;
+- sends `test_start` / `test_pause` / `test_resume` / `test_stop`, shows a
+  progress bar, elapsed/remaining and the next event;
+- shows live metrics from Y's state push (active tier, RTT both legs, injected
+  delay, input→display, X/Y/Z fps, Z decode; X encode arrives with WS2.3);
+- lists reports from Y, opens one as JSON and exports its samples as CSV;
+- launches End Z in test mode (`FYP_TEST=1`, `FYP_Y_IP` from the panel's Y
+  address) and focuses the pygame window by its caption;
+- links to `web/dashboard.html?ip=<Y_IP>` for remote monitoring.
+
+Notes:
+
+- The panel talks only to Y. It does not connect to X or Z itself.
+- A websocket reader thread does the I/O and hands parsed messages to the Tk
+  thread through a queue, so no Tk call happens off the main thread.
+- The reader reconnects every 2 s while the panel is open; **Disconnect** stops
+  it.
+- `video_preset` is recorded, not applied, until WS2.3; the placement pattern
+  stays unavailable until the WS3 router.
+
+## WS2.3 — X runtime video (planned)
 
 After the WS1.1 captures are archived, add to `x_server.py`:
 
@@ -221,7 +249,10 @@ The test config used by the unattended runs should keep the player alive:
   Z control queue, X/Y FPS windows, report finalisation.
 - `z_client.py` — `FYP_TEST=1`, test commands, input patterns, overlay, stats.
 - `tools/test_cli.py` — WS2.1 driver.
+- `tools/test_panel.py` — WS2.2 Tk panel (Tk + websocket shell).
+- `tools/panel_model.py` — WS2.2 headless plan/progress/protocol logic.
 - `tools/plans/ws2_1_smoke.json` — example plan.
 - `tests/test_testplan.py`, `tests/test_report.py` — unit tests.
+- `tests/test_panel_model.py`, `tests/test_panel_smoke.py` — WS2.2 tests.
 
 

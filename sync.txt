@@ -820,5 +820,23 @@ HEAD   : 0df8de5  "Sync: record WS naming commit/push"
   - Docs-only validation; 27 tests + selftest unchanged; no code changes.
   - Next: create dev + feature/ws2.2-test-panel; WS2.2 Tk panel.
 
+[2026-11-23 16:20 +09:00 | from Y / home PC — branches created, WS2.2 Tk panel shipped]
+  - Branch model in use: dev and feature/ws2.2-test-panel created from feature/Cloud_X and pushed.
+    Development continues on the feature branch; X/Y/Z split stays a release step.
+  - New: tools/test_panel.py (Tk 8.6 + websocket reader thread) and tools/panel_model.py
+    (headless plan/progress/protocol logic). tests/test_panel_model.py (26) and
+    tests/test_panel_smoke.py (2 Tk build/close) -> suite 54 tests OK.
+  - Panel: plan editor (load/save/apply/preview), timeline events + ASCII timeline,
+    Start/Pause/Resume/Terminate, progress/next event, live metrics, report list +
+    JSON view + CSV export, Launch Z (FYP_TEST=1) and Focus Z, browser dashboard link.
+  - Live E2E through the panel: Y + headless Z; phases idle > warmup > running > paused >
+    running > finished; report 20261123-161423 (40 samples, e2e p50 13.7 / p90 15.88,
+    mode Y because no X was up). Report kept in logs/reports/.
+  - Cleanup: the E2E Y/Z pair and a leftover duplicate Y were stopped; no Y/Z running now.
+  - Docs: README (WS2.2 section, status, tree), docs/test-panel.md (panel guide),
+    commands.md, context.md, roadmap.md (WS2.2 done; WS2.3 next).
+  - Validation: 55 tests, selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
+  - Next: WS2.3 X runtime video/stats/stop; then WS3 task router/placement.
+
 END OF SYNC
 

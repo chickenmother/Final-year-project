@@ -9,7 +9,7 @@
 | **Institution** | Kyushu Sangyo University, Department of Information Science |
 | **Programme** | Final Year Project |
 | **Academic Year** | 2025/2026 |
-| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 test runner/CLI shipped; WS1.3 post-fix smoke completed (`20261123-153034`); WS2.2 Tk panel next; task-level placement (WS3) planned |
+| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 test runner/CLI shipped; WS1.3 post-fix smoke completed (`20261123-153034`); WS2.2 Tk control panel shipped (panel-driven E2E run `20261123-161423`); WS2.3 X runtime control next; task-level placement (WS3) planned |
 
 A final year project modelling a **3-tier vertical cloud gaming architecture** — **End Node (Z) → Middle Edge Gateway (Y) → Cloud Server (X)** — under simulated network latency degradation.
 
@@ -113,9 +113,9 @@ The test plan currently has `mode` (legacy) and `video_preset` (video); the plan
 
 ### Implementation status
 
-- **Implemented:** whole-pipeline baseline; A–E game core; U menu/overlay/config (partial); H.264/JPEG; Y fallback; test runner/reports; Z test mode.
+- **Implemented:** whole-pipeline baseline; A–E game core; U menu/overlay/config (partial); H.264/JPEG; Y fallback; test runner/reports; Z test mode; WS2.2 Tk control panel.
 - **Partial:** B (no pathfinding); U (leaderboard placeholder); no L.
-- **Planned:** Y task router/placement table; local A/B copies; L SQLite on X; leaderboard view; per-task metrics; test-panel placement axis; WS2.2 Tk panel; WS2.3 X runtime video.
+- **Planned:** Y task router/placement table; local A/B copies; L SQLite on X; leaderboard view; per-task metrics; test-panel placement axis; WS2.3 X runtime video.
 
 
 
@@ -161,6 +161,8 @@ FYP/
 │   └── dashboard.html           # live mode/RTT/lag/game state + latency slider
 ├── tools/
 │   ├── test_cli.py              # WS2.1 test driver
+│   ├── test_panel.py            # WS2.2 Tk control panel (Tk + websocket shell)
+│   ├── panel_model.py           # WS2.2 headless panel logic (unit-tested)
 │   ├── autoplay_z.ps1           # immortal config + unattended Z launcher
 │   └── plans/
 │       ├── ws1_1_a0.json        # WS1.1 baseline (preset A0)
@@ -171,9 +173,11 @@ FYP/
 ├── tests/
 │   ├── test_game_core.py
 │   ├── test_testplan.py
-│   └── test_report.py
+│   ├── test_report.py
+│   ├── test_panel_model.py      # WS2.2 plan/progress/protocol logic
+│   └── test_panel_smoke.py      # WS2.2 Tk build + close
 ├── docs/
-│   ├── test-panel.md            # test protocol, reports, WS2.2/WS2.3 plan (guide)
+│   ├── test-panel.md            # test protocol, reports, panel guide
 │   ├── notes/
 │   │   ├── .gitkeep
 │   │   └── latency-notes.md     # Wi-Fi/DERP findings and threshold calibration
@@ -419,7 +423,7 @@ Because X asks for a snapshot on every connection, the game state continues inst
 
 ## Test Control Panel
 
-### WS2.1 — implemented
+### WS2.1 — runner/CLI (implemented)
 
 Y accepts a test protocol on the dashboard WebSocket (8002). A plan selects the workload, legacy
 mode (`auto`/`cloud`/`edge`), X video preset (recorded now; applied at runtime in WS2.3), Z input
@@ -449,16 +453,44 @@ summary when the run finishes; the raw per-frame logs remain in `logs/log_x/y/z.
 
 WS2.1 command reference and the report schema: [docs/test-panel.md](docs/test-panel.md).
 
-### WS2.2 / WS2.3
+### WS2.2 — Tk control panel (implemented)
 
-- **WS2.2** — `tools/test_panel.py` (Tk 8.6, stdlib): plan/preset editor, workload/mode/input/
-  video selectors, placement-pattern selector (once the task router lands), timeline, progress,
-  Start/Pause/Resume/Terminate, live metrics, report history, and launch/focus of the Z pygame
-  window. The browser dashboard stays available as a remote monitor.
-- **WS2.3** — X runtime `video` command (GOP/resolution/bitrate/intra-refresh with encoder
-  rebuild + IDR), X `stats` (fps/encode/keyframes) and X `stop`. The panel’s A0/A1/A2/intra
-  presets then apply without restarting X. Until then X uses its startup `FYP_X_*` values and
-  the report records `video_runtime: current`.
+`tools/test_panel.py` is a stdlib Tk (8.6) panel for the same protocol; `tools/panel_model.py`
+holds its headless plan/progress/protocol logic so it can be unit-tested without a display.
+
+```powershell
+# Cloud X and Middle Y run normally; start End Z in test mode (or use the panel's button):
+$env:FYP_TEST = "1"
+.\run_z.cmd <Y_ADDRESS>
+
+.\venv\Scripts\python.exe tools\test_panel.py `
+    --y ws://<Y_DASHBOARD_ADDRESS>:8002 --plan tools\plans\ws2_1_smoke.json
+```
+
+What it does:
+
+- plan editor (name, warm-up/duration, seed, workload, mode, video preset, input pattern) with
+  Load/Save/Apply/Preview and the bundled plans in `tools/plans/`;
+- timeline event editor (delay/mode/pattern/pause) and an ASCII timeline preview;
+- **Start / Pause / Resume / Terminate**, a progress bar, elapsed/remaining and the next event;
+- live Y/X/Z metrics (active tier, RTT both legs, injected delay, input→display, X/Y/Z fps, decode);
+- report history from Y, JSON viewer and CSV export;
+- **Launch Z (test)** (`FYP_TEST=1`, `FYP_Y_IP` taken from the panel's Y address) and **Focus Z**
+  for the pygame window;
+- a link back to the browser dashboard (`web/dashboard.html?ip=<Y_ADDRESS>`) as a remote monitor.
+
+The panel never talks to X directly — Y owns the run, the timeline and the report. The video
+preset is recorded in the plan/report but X still uses its startup `FYP_X_*` values until WS2.3,
+so the **X encode ms** metric stays blank for now. The placement pattern becomes selectable once
+the WS3 task router lands.
+
+### WS2.3 — X runtime control (planned)
+
+- `video` command: GOP/resolution/bitrate/intra-refresh with encoder rebuild + IDR.
+- `stats`: fps/encode p50/p95/keyframes/bytes for the panel's live metrics.
+- `stop`: stop stepping/streaming without killing the X process.
+
+Until then X uses its startup `FYP_X_*` values and the report records `video_runtime: current`.
 
 ---
 
