@@ -1,0 +1,848 @@
+SYNC LOG — shared notes between Cloud X / Middle Y / End Z
+File created : 2026-11-03 12:32 +09:00   (from Y)
+Last updated : 2026-11-23 16:25 +09:00   (from Y / home PC)
+
+Repo   : https://github.com/chickenmother/Final-year-project.git
+Branch : feature/ws2.2-test-panel   (dev branched off feature/Cloud_X)
+HEAD   : 7a9b0fb  "WS2.2: Tk control panel (plan editor, run controls, metrics, reports, Z launch)"
+         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.2 complete)
+
+====================================================================
+1. MACHINE ROLES / ADDRESSES
+====================================================================
+[2026-11-03 | from X, relayed by user]
+  host Chicken_Mother, Windows 11 build 26200, LAN 192.168.0.181
+  Python 3.13.9 | pygame 2.6.1 | Pillow 11.3.0 | websockets 15.0.1
+
+[2026-11-03 12:35 +09:00 | from Y]
+  host andoryuuuspc (this laptop)
+  Wi-Fi 192.168.0.17/24, gateway 192.168.0.1, Wi-Fi profile = Public
+  Tailscale 1.104.4, IP 100.78.193.29, account as04117sky@
+  Python 3.10.5 (NOT yet matched to X)
+  venv: pygame 2.6.1 | Pillow 12.3.0 | websockets 16.1.1
+
+[2026-11-03 12:35 +09:00 | from Y]
+  End Z: weaker laptop, not set up yet.
+  Z needs only pygame + websockets (no Pillow, no images).
+  Ports: X 8001 (Y->X) | Y 8000 (Z->Y) | Y 8002 (dashboard)
+
+[2026-11-03 13:03 +09:00 | from X]
+  Tailnet is up; all three devices in the same account (as04117sky@):
+    X  chicken-mother  100.90.88.64    home LAN 192.168.0.181
+    Y  andoryuuuspc    100.78.193.29   remote (lab / other network)
+    Z  pc23-148d       100.88.203.76   currently on the home LAN 192.168.0.106
+  MagicDNS resolves the short names on X (Resolve-DnsName -> CNAME -> A) and
+  Python's socket.getaddrinfo returns the 100.x address, so ws://<name>:port
+  works unchanged. No code change is needed for hostname-based URIs.
+
+====================================================================
+2. VERIFIED WORKING
+====================================================================
+[2026-11-03 12:29 +09:00 | from Y]
+  TCP 192.168.0.181:8001      -> OPEN in 25 ms
+  ws://192.168.0.181:8001     -> WebSocket handshake OK
+  .\run_y.cmd 192.168.0.181   -> connected
+    stdout: "Y ready: Z -> ws://192.168.0.17:8000  dashboard -> ws://192.168.0.17:8002"
+            "connected to X at ws://192.168.0.181:8001"
+    log_y.csv: mode=X, rtt_ms ~11-13, e2e=0 (no Z), x_link=1
+
+[2026-11-03 (time not recorded) | from X, relayed by user]
+  python 3.13.9 | pygame 2.6.1 | pillow 11.3.0 | websockets 15.0.1
+  ticks 3000 score 46 deaths 42
+  hash 30f043222e75fabf0ec80d2cd7edf6df
+  resync OK
+  render bytes: 43002 (X) 8027 (Y)
+
+[2026-11-03 (earlier, before the 73afaa6 pull) | from Y]
+  selftest on Python 3.10.5 produced the SAME hash and render bytes as X.
+  Environment still differs; re-check after upgrading Y to 3.13.9.
+
+[2026-11-03 12:27 +09:00 | from Y]
+  ping 192.168.0.181 times out because ICMP is blocked. This is normal.
+  Use Test-NetConnection on port 8001, not ping.
+
+====================================================================
+3. CURRENT BLOCKER: "x-home" DOES NOT RESOLVE
+====================================================================
+[2026-11-03 12:34 +09:00 | from Y]
+  Symptom: .\run_y.cmd x-home fails; log_y.csv shows
+           mode=Y, rtt_ms=0, x_link=0 (Y stays in edge fallback).
+  Diagnostics run on Y:
+    tailscale ip -4                  -> 100.78.193.29
+    tailscale status                 -> only "andoryuuuspc" (no peers)
+    Resolve-DnsName x-home           -> no result
+    Test-NetConnection x-home -Port 8001 -> False
+  Cause: x-home is a Tailscale MagicDNS name. X is not on this tailnet
+         yet, or uses a different device name/account, or MagicDNS is off.
+
+[2026-11-03 12:34 +09:00 | from Y — fix plan]
+  1) Install Tailscale on X, sign in to the SAME account.
+  2) Name the device "x-home"; enable MagicDNS; disable key expiry.
+  3) On X: tailscale up ; tailscale ip -4 ; tailscale status
+  4) From Y: tailscale status (x-home must appear),
+     Resolve-DnsName x-home,
+     Test-NetConnection x-home -Port 8001  (must be True).
+  5) Allow inbound TCP 8001 on X's Tailscale adapter (Private / Any).
+  6) .\run_y.cmd x-home
+  Until then use the LAN address: .\run_y.cmd 192.168.0.181
+
+[2026-11-03 13:03 +09:00 | from X — RESOLVED]
+  X is now on the tailnet. Blocking cause was simply that X's Tailscale was
+  logged out (state NeedsLogin); it is now signed in as chicken-mother.
+  NOTE: the device is NOT named "x-home". Use the real names:
+    X = chicken-mother     Y = andoryuuuspc     Z = pc23-148d
+  (x-home / y-lab in README and earlier notes are illustrative only.)
+  tailscale ping from X:
+    X <-> Y : via DERP(tok) 63 / 57 / 57 ms   (direct connection not established)
+    X <-> Z : direct 192.168.0.106:41641     4 ms
+
+====================================================================
+4. CHANGES MADE IN THIS SESSION
+====================================================================
+[2026-11-03 | from Y]
+  - Created .gitignore (venv, __pycache__, *.pyc, log_*.csv, .env*, IDE/OS)
+    and verified with git check-ignore.
+  - Created/maintained README.md (architecture, message flow, prerequisites,
+    quick start, dashboard, latency injection, self-test, logs, config, WAN).
+  - Flattened the project: cloudgame/* moved to the repo root; cloudgame/
+    deleted. common/game.py resolves images/ from its own file, so this works.
+  - Removed references to the deleted images/PUT_YOUR_IMAGES_HERE.txt.
+  - Pulled desktop work (HEAD 73afaa6): FYP_* env config, run_*.cmd launchers,
+    reconnect logic, lan_ip(), Z-side RTT probe, X logging, WAN/Tailscale docs.
+  - Installed Tailscale 1.104.4 on Y; logged in as 100.78.193.29.
+  - LAN X<->Y tested successfully with the new code.
+  - Temporary files from tests: y_test.out/err, ts_up.out/err
+    (safe to delete; ts_up.err holds an expired auth link).
+
+[2026-11-03 12:35 +09:00 | from Y]
+  Current top-level layout:
+    .gitignore  README.md  requirements.txt  sync.txt
+    run_x.cmd  run_y.cmd  run_z.cmd
+    x_server.py  y_gateway.py  z_client.py  selftest.py  dashboard.html
+    common/  images/  venv/
+    log_y.csv  log_z.csv  (runtime output, git-ignored)
+
+====================================================================
+5. ENVIRONMENT MISMATCH (TODO)
+====================================================================
+[2026-11-03 12:35 +09:00 | from Y]
+  Y: Python 3.10.5, Pillow 12.3.0, websockets 16.1.1
+  X: Python 3.13.9, Pillow 11.3.0, websockets 15.0.1
+  requirements.txt pins: pygame==2.6.1, Pillow==11.3.0, websockets==15.0.1
+  Decision: MATCH X (not the absolute newest) for determinism.
+
+[2026-11-03 12:35 +09:00 | from Y - commands to run on Y]
+  winget install --id Python.Python.3.13 --version 3.13.9 --exact
+  Remove-Item -Recurse -Force venv
+  py -3.13 -m venv venv
+  .\venv\Scripts\Activate.ps1
+  python -m pip install --upgrade pip
+  python -m pip install -r requirements.txt
+  python selftest.py
+  Expected: 3.13.9 / 2.6.1 / 11.3.0 / 15.0.1,
+            hash 30f043222e75fabf0ec80d2cd7edf6df, resync OK,
+            render bytes 43002 / 8027.
+
+====================================================================
+6. NETWORK / FIREWALL
+====================================================================
+[2026-11-03 12:35 +09:00 | from Y]
+  Y Wi-Fi profile is Public. For LAN tests:
+    Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private
+  No FYP inbound rule yet for 8000/8002. When Z/dashboard must connect
+  from another machine:
+    New-NetFirewallRule -DisplayName "FYP Edge Y 8000 8002" -Direction Inbound `
+      -Protocol TCP -LocalPort 8000,8002 -Action Allow -Profile Any
+  Tailscale adapter is Up; check Get-NetConnectionProfile for its category.
+
+[2026-11-03 12:29 +09:00 | from Y]
+  X: port 8001 is reachable from Y. When using Tailscale, confirm 8001 is
+     allowed on X's Tailscale adapter.
+
+====================================================================
+7. PENDING ACTIONS (IN ORDER)
+====================================================================
+[2026-11-03 12:38 +09:00 | from Y]
+  [ ] Put X on the same tailnet; make x-home resolve from Y.
+  [ ] Test-NetConnection x-home -Port 8001 -> True.
+  [ ] .\run_y.cmd x-home -> "connected to X".
+  [ ] Upgrade Y to Python 3.13.9 + pinned requirements; selftest hash = X.
+  [ ] Set Y profiles to Private; add 8000/8002 inbound rule.
+  [ ] Set up Z later:
+        winget install --id Python.Python.3.13 --version 3.13.9 --exact
+        py -3.13 -m venv venv
+        .\venv\Scripts\Activate.ps1
+        python -m pip install pygame==2.6.1 websockets==15.0.1
+        .\run_z.cmd <Y-tailnet-name-or-IP>
+      Z needs no images, no Pillow, no inbound firewall rule.
+  [ ] Re-run latency test: slider >80 ms -> EDGE Y; <50 ms for 3 s -> CLOUD X.
+
+[2026-11-03 13:03 +09:00 | from X — status update]
+  [x] Put X on the same tailnet                     -> chicken-mother 100.90.88.64
+  [x] x-home resolves                              -> rename needed? NO: use chicken-mother
+  [ ] Y firewall 8000/8002 inbound                 -> still missing (blocks Z)
+  [ ] Y Python 3.13.9 + pinned requirements        -> Y still on 3.10.5
+  [ ] Y run_y with chicken-mother + calibrated thresholds -> see section 9
+
+====================================================================
+8. COMMANDS
+====================================================================
+[2026-11-03 12:38 +09:00 | from Y]
+  LAN:        Test-NetConnection 192.168.0.181 -Port 8001
+              .\run_x.cmd
+              .\run_y.cmd 192.168.0.181
+[2026-11-03 13:03 +09:00 | from X — tailnet commands]
+  Run:        .\run_x.cmd
+              .\run_y.cmd chicken-mother
+              .\run_z.cmd andoryuuuspc
+  Tailscale:  & "C:\Program Files\Tailscale\tailscale.exe" status
+              & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+              & "C:\Program Files\Tailscale\tailscale.exe" ping andoryuuuspc
+              & "C:\Program Files\Tailscale\tailscale.exe" ping pc23-148d
+  Dashboard:  dashboard.html?ip=127.0.0.1        (Y local)
+              dashboard.html?ip=192.168.0.17       (Y LAN)
+              dashboard.html?ip=andoryuuuspc       (tailnet name)
+              dashboard.html?ip=100.78.193.29      (tailnet IP)
+  Logs:       log_y.csv columns: unix_time, mode, rtt_ms, injected_delay_ms,
+              e2e_ms_from_Z, rtt_zy_ms_from_Z, x_link
+              x_link=1 -> Y->X link up; x_link=0 -> Y in fallback.
+
+====================================================================
+9. REQUIRED CHANGES ON Y  (from X, 2026-11-03 13:03 +09:00)
+====================================================================
+[2026-11-03 13:03 +09:00 | from X — why a change is needed]
+  The X<->Y baseline is ~60 ms because Tailscale relays through DERP(tok);
+  no direct path is available from Y's network. The default LOW_MS = 50 is
+  therefore BELOW the baseline, so once Y switches to EDGE Y it can never
+  return to CLOUD X ("stuck in fallback"). No code change is required:
+  HIGH_MS / LOW_MS / RECOVER_S are environment variables (commit 73afaa6).
+
+  Calibrate on Y (baseline 60 -> HIGH 100, LOW 75):
+    $env:FYP_HIGH_MS = "100"      # baseline + ~40
+    $env:FYP_LOW_MS  = "75"       # baseline + ~15
+    $env:FYP_RECOVER_S = "3.0"    # default, keep
+
+[2026-11-03 13:03 +09:00 | from X — steps for Y, in order]
+  1) git pull                     (fetch this file; code HEAD >= 1cc8c98)
+  2) Firewall (admin PowerShell, once) — Z connects TO Y:
+       New-NetFirewallRule -DisplayName "FYP Edge Y 8000 8002" `
+         -Direction Inbound -Protocol TCP -LocalPort 8000,8002 `
+         -Action Allow -Profile Any
+     (-Profile Any because Y's Wi-Fi is Public and the Tailscale adapter
+      category may differ; a Private-only rule will silently block Z.)
+  3) Match X's environment exactly:
+       winget install --id Python.Python.3.13 --version 3.13.9 --exact
+       Remove-Item -Recurse -Force venv
+       py -3.13 -m venv venv
+       .\venv\Scripts\python.exe -m pip install -r requirements.txt
+       .\venv\Scripts\python.exe selftest.py
+     Expected:
+       python 3.13.9 | pygame 2.6.1 | pillow 11.3.0 | websockets 15.0.1
+       ticks 3000 score 46 deaths 42 hash 30f043222e75fabf0ec80d2cd7edf6df
+       resync OK
+       render bytes: 43002 (X) 8027 (Y)
+     (Y's 3.10.5 run already matched the hash, but match 3.13.9 anyway.)
+  4) Optional, bind Y to the tunnel only instead of 0.0.0.0:
+       $env:FYP_Y_HOST = "100.78.193.29"
+  5) Start Y with the calibrated thresholds and X's real name:
+       $env:FYP_HIGH_MS = "100"
+       $env:FYP_LOW_MS  = "75"
+       .\run_y.cmd chicken-mother
+     Expected stdout:
+       "connected to X at ws://chicken-mother:8001"
+       "Y ready: Z -> ws://100.78.193.29:8000   dashboard -> ws://100.78.193.29:8002"
+     log_y.csv: x_link=1, mode=X, rtt_ms ~57-65 (slider at 0)
+  6) If MagicDNS fails on Y (Resolve-DnsName chicken-mother -> nothing):
+       .\run_y.cmd 100.90.88.64
+     The tunnel works without DNS; only the name is cosmetic.
+
+[2026-11-03 13:03 +09:00 | from X — for Z (pc23-148d), when ready]
+  Z needs only pygame + websockets; no images, no Pillow, no inbound rule:
+    winget install --id Python.Python.3.13 --version 3.13.9 --exact
+    git pull
+    py -3.13 -m venv venv
+    .\venv\Scripts\python.exe -m pip install pygame==2.6.1 websockets==15.0.1
+    .\run_z.cmd andoryuuuspc        (or 100.78.193.29)
+  Z currently sits on the home LAN (direct 4 ms to X); when it moves to the
+  mobile hotspot, expect Z<->Y to become DERP-relayed as well.
+
+[2026-11-03 13:03 +09:00 | from X — verification checklist]
+  [ ] Test-NetConnection chicken-mother -Port 8001        -> True
+  [ ] .\run_y.cmd chicken-mother -> "connected to X"; log_y x_link=1
+  [ ] selftest hash == 30f043222e75fabf0ec80d2cd7edf6df
+  [ ] Z: "connected to Y"; overlay shows CLOUD X and input->display
+  [ ] dashboard shows BOTH legs: rtt(X<->Y) ~60 and rtt_zy(Z<->Y)
+  [ ] slider 120 -> EDGE Y within ~2 s; slider 0 -> CLOUD X in ~3-5 s
+      (only with FYP_HIGH_MS=100 / FYP_LOW_MS=75; defaults never recover)
+  [ ] record `tailscale ping` (direct vs DERP) for each leg per run
+
+[2026-11-03 13:03 +09:00 | from X — notes]
+  - No application code changes are required for the tailnet. common/config.py
+    already builds ws://<host>:<port>; dashboard.html already accepts ?ip=<name>.
+  - Commit 73afaa6 already contains: FYP_* tuning variables, Z<->Y RTT probe
+    (rtt_zy in state/dashboard), log_y column rtt_zy_ms_from_Z, log_z column
+    rtt_zy_ms, WAN docs.
+  - DERP throughput: if the ~20 Mbps CLOUD X stream stutters over the relay,
+    set on X:  $env:FYP_X_STREAM_EVERY = "2"   (~10 Mbps, 30 fps) and note it.
+  - Report both paths: X<->Y is relayed (DERP tok), X<->Z is direct today.
+    `tailscale netcheck` explains why no direct path exists from Y.
+  - Cleanup on Y from earlier tests: y_test.out/err, ts_up.out/err (ts_up.err
+    holds an expired auth link).
+
+[2026-11-03 13:20 +09:00 | from Y — required changes executed]
+  - Python 3.13.9 installed via winget (Python.Python.3.13, version 3.13.9).
+  - venv recreated with py -3.13; pinned requirements installed:
+      python 3.13.9 | pygame 2.6.1 | pillow 11.3.0 | websockets 15.0.1
+  - selftest.py result:
+      ticks 3000 score 46 deaths 42
+      hash 30f043222e75fabf0ec80d2cd7edf6df
+      resync OK
+      render bytes: 43002 (X) 8027 (Y)
+    -> matches X exactly.
+  - Firewall: rule "FYP Edge Y 8000 8002" already exists, Enabled, Inbound,
+    Allow, Profile = Private. Changing it to -Profile Any needs Administrator:
+    New-NetFirewallRule returned "Access is denied". Wi-Fi
+    ("chicken_mother's wifi") and the Tailscale adapter are both Private,
+    so LAN/Tailscale Z should be covered. Re-check if Z uses a Public adapter.
+  - Y starts and listens on 0.0.0.0:8000 (Z) and 0.0.0.0:8002 (dashboard).
+  - X link still DOWN: PermissionError(13, 'Access is denied') to both
+    192.168.0.181:8001 and 100.90.88.64:8001.
+    `tailscale ping chicken-mother` -> pong via DERP(tok), 54-77 ms.
+    Local diagnosis: a WireGuard tunnel adapter "gn402096-165_v4"
+    (10.200.200.165, default route metric 0) is active and blocks LAN /
+    non-tunnel TCP; 1.1.1.1:443 succeeded while 192.168.0.1:80 and
+    8.8.8.8:53 returned the same WinError 10013. Suspect VPN kill switch.
+  - Next action: disconnect the WireGuard VPN (or allow LAN traffic on it),
+    then from Y:
+      Test-NetConnection chicken-mother -Port 8001
+      $env:FYP_HIGH_MS = "100"; $env:FYP_LOW_MS = "75"
+      .\run_y.cmd chicken-mother
+    Expected: "connected to X at ws://chicken-mother:8001",
+              log_y x_link=1, mode=X, rtt_ms ~57-65.
+  - Cleanup: y_run.out/err removed; y_test.out/err and ts_up.out/err are
+    not present.
+
+[2026-11-10 13:35 +09:00 | from Y — H.264 fallback implemented]
+  - common/video.py: H264Encoder (h264_qsv -> h264_nvenc -> libx264) and
+    H264Decoder. QSV options: async_depth=1, low_delay_brc=1, preset=veryfast.
+  - Y fallback now encodes 480x270 @ 30 fps H.264, 1 Mbps, GOP 10.
+  - Z sends {"t":"hello","h264":true}; Y uses H.264 only when every connected
+    Z advertised support. Old Z (no hello) still receives JPEG.
+  - X still sends JPEG; Y forwards X frames unchanged.
+  - Frame markers: uppercase X/Y = JPEG (old layout); lowercase y =
+    y + keyframe byte + !II(tick,seq) + H.264 payload.
+  - Y keeps a GOP-aware per-Z queue for H.264; JPEG remains latest-frame-wins.
+  - requirements.txt adds av==19.0.2. Z must `git pull` and run
+    .\venv\Scripts\python.exe -m pip install -r requirements.txt
+  - Tests on Y:
+      QSV encode/decode: 30/30 frames, 3 keyframes
+      Y fallback + new Z: 132 H.264 frames, 132 decoded
+      old Z (no hello): 66 JPEG frames, 0 H.264
+      full X->Y->Z protocol: 160 JPEG while X up; 95 H.264 after X stopped,
+      95 decoded
+      selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged
+  - X mode is still JPEG (~20 Mbps); this change improves the Y fallback only.
+
+[2026-11-10 17:35 +09:00 | from X — Cloud X H.264 implemented]
+  - X now encodes video too: common/video.py H264Encoder with the same
+    h264_qsv -> h264_nvenc -> libx264 chain as Y.
+  - Settings: 960x540 @ 60 fps, FYP_X_BITRATE=4000000, FYP_X_GOP=30.
+    On X the chosen encoder is h264_nvenc (measured ~8 ms/frame, ~1.2 Mbps
+    on the test scene, 1 packet/frame).
+  - Frame markers now (all three tiers must run this commit):
+      X = X JPEG   -> X | !II(tick,seq) | JPEG
+      x = X H.264  -> x | key | !II(tick,seq) | H.264
+      Y = Y JPEG,  y = Y H.264 (unchanged)
+    Y's on_x_msg parses the marker, forwards X frames unchanged and keeps a
+    GOP-aware per-Z queue.
+  - Capability: Y sends {"t":"caps","h264":bool} to X on connect, on every Z
+    connect/disconnect and after a Z hello. A new Z counts as JPEG-only until
+    its hello arrives, so X briefly drops to JPEG when a Z connects. X only
+    sends H.264 when every connected Z advertised support.
+  - IDR recovery: Z detects a tick gap, waits for a keyframe and sends
+    want_idr in its next input; Y relays {"t":"need_idr"}; X re-opens its
+    encoder so the next frame is an IDR.
+  - Y's own fallback is unchanged; Y only relays caps and need_idr.
+  - Z: log_z.csv gains a codec column; the overlay now shows
+    "CLOUD X (H.264)" / "EDGE Y (H.264)" or "(JPEG)".
+  - X log_x.csv columns are now:
+      unix_time, tick, seq, codec, encode_ms, frame_bytes
+    (render_ms / jpeg_bytes are gone).
+  - Tests on X (loopback, NVENC):
+      90/90 X H.264 frames decoded, ticks advancing, no JPEG while H.264
+      want_idr -> keyframe within 1 s (GOP forced to 300 to prove the request)
+      non-H.264 Z -> X switched to JPEG (119 frames), back to H.264 (80)
+      X killed -> Y fallback 85 H.264 frames, 85 decoded
+      real z_client: log_z rows X,h264 and then Y,h264; no decoder errors
+      FYP_X_CODEC=jpeg -> log_z X,jpeg and log_x codec=jpeg
+      selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged
+  - REQUIRED ON Y AND Z: git pull; then
+      .\venv\Scripts\python.exe -m pip install -r requirements.txt
+    (av==19.0.2 was already required; no new package.) The frame format
+    changed, so all three tiers must run this commit.
+  - Suggested env for the lab (no code changes):
+      X: FYP_X_BITRATE=4000000  FYP_X_GOP=30   (defaults)
+      if encode_ms + render cannot hold 60 fps: FYP_X_STREAM_EVERY=2
+      force the previous JPEG-only behaviour: FYP_X_CODEC=jpeg
+
+[2026-11-16 18:30 +09:00 | from Y — Game v2 Milestone 1]
+  - Added game/ package: entities, simulation, hitreg, effects, render,
+    workload. Player/bot/obstacle/bullet HP, bot shooting, waves,
+    explosion particles, spatial-grid collision.
+  - Workload profiles: light (8 obstacles, 0 bots), medium (100/5),
+    heavy (1000/50, 200 bullets/s, 300 particles).
+  - Snapshot/restore and deterministic digest for the new core.
+  - Legacy common/game.py remains the default; FYP_GAME_CORE=v2 selects
+    the new core.
+  - Unit tests: tests/test_game_core.py (8 tests, all pass). Legacy
+    selftest.py hash unchanged: 30f043222e75fabf0ec80d2cd7edf6df.
+  - Detailed plan: GAME_MVP_PLAN.md (task model A/B/C/D/E, L pinned X,
+    U local Z; milestones; logging; risks).
+  - Next: Milestone 2 — menu on Z + X-only SQLite leaderboard.
+
+[2026-11-16 18:45 +09:00 | from Y — Menu + start/game-over protocol]
+  - Added ui/menu.py: local Z menu with VS Bot, light/medium/heavy
+    workload selection, disabled Leaderboard/Multiplayer placeholders,
+    Exit. No network needed to render the menu.
+  - z_client.py: menu-first loop; Start sends hello + {"t":"start"} and
+    enters play; game_over returns to menu with last score.
+  - x_server.py / y_gateway.py now import the v2 game core directly.
+  - start message resets X and Y to the chosen workload/seed and forces a
+    keyframe; X emits game_over once; Y forwards it to Z.
+  - Legacy common/game.py selftest still passes with its original hash.
+  - Tests: 8 unit tests pass; headless X->Y protocol test received 255
+    JPEG frames; headless Z connected and started successfully.
+  - Leaderboard remains disabled/pending (next milestone).
+  - Note: Direct multiplayer remains disabled; VS Bot is the playable mode.
+
+[2026-11-16 18:52 +09:00 | from Y — pause + game-over UI]
+  - Added ui/overlay.py: PauseMenu (Resume/Retry/Main Menu) and
+    GameOverMenu (Retry/Main Menu/Exit).
+  - z_client: Esc sends pause, opens overlay; pause freezes X/Y ticks.
+    Retry resets the same workload; Main Menu returns to the menu.
+    Player death shows the game-over screen with score/deaths.
+  - X/Y handle pause/resume messages; Y stops its tick loop while paused;
+    X ignores inputs while paused.
+  - Menu now shows bot counts per workload: light 0, medium 5, heavy 50.
+  - Tests: 8 unit tests pass; menu/overlay render headless; pause test
+    received 0 frames while paused and 41 after resume.
+
+[2026-11-16 18:56 +09:00 | from Y — QSV first-frame freeze fix]
+  - force_keyframe() no longer re-opens the encoder. It marks the next
+    frame as an IDR (PictureType.I), avoiding QSV re-initialization.
+  - X log had 4.7–5.4 s encode_ms for the first frame after every start;
+    now forced frame ~18 ms and normal frames ~6–7 ms at 960x540.
+  - This removes the 5-second startup freeze that was making the game
+    feel laggy even on localhost.
+  - Second remaining performance item: ensure 60 fps budget after heavy
+    render/encode; measure again before changing frame rate/quality.
+
+[2026-11-16 19:06 +09:00 | from Y — lighter medium profile + local startup]
+  - medium obstacles reduced 100 -> 40, placed randomly/scattered
+    (random placement now used up to 60 obstacles).
+  - heavy obstacles reduced 1000 -> 500 (still 50 bots).
+  - menu default workload is now medium; auto default medium.
+  - run_local.cmd waits 4 s after X, 3 s after Y, and sets
+    FYP_HIGH_MS=120 / FYP_LOW_MS=70 / FYP_BAD_COUNT=5 for the local
+    demo to avoid an immediate false Y fallback.
+  - Measured X render+H.264 at 960x540: medium ~11.9 ms avg (p95 13.3),
+    heavy ~12.6 ms (p95 14.7).
+  - Remaining observation: if Y still falls back immediately on the PC,
+    inspect log_y.csv rtt/mode and X stdout; likely X was not ready or
+    the local threshold is still too tight.
+
+[2026-11-16 19:19 +09:00 | from X — 1920x1080 game + encoder choice]
+  - Game world, X capture, and Z window are now 1920x1080 by default
+    (FYP_WIN_SIZE / FYP_X_SIZE). Y fallback is 960x540 (FYP_Y_SIZE).
+  - Menu and pause/game-over overlays scale from their 960x540 layout
+    using screen size, so the 1080p window is not half-empty.
+  - X H.264 default raised to 8 Mbps; Y fallback to 2 Mbps.
+  - Encoder default is now libx264 instead of QSV. Measured at 1920x1080
+    on X: QSV render+encode ~32-35 ms/frame; libx264 ultrafast
+    ~1.9 ms/frame for encode alone. Hardware encoders can still be
+    selected with FYP_X_ENCODER=h264_qsv / h264_nvenc and FYP_Y_ENCODER.
+  - Added H264Encoder.encode_surface(), so X/Y encode the pygame surface
+    directly (RGBA -> VideoFrame.from_bytes) instead of a PIL round-trip.
+    Full 1080p render+encode is now ~14.5 ms avg / ~17 ms p95 on X.
+  - X still streams 30 fps by default (FYP_X_STREAM_EVERY=2) because
+    60 fps leaves almost no headroom; set it to 1 on a faster PC.
+  - Verified: 8 game-core tests pass; selftest hash still
+    30f043222e75fabf0ec80d2cd7edf6df; 12/12 H.264 frames decoded at
+    both 1920x1080 (X) and 960x540 (Y); X/Y encoders initialize at the
+    new sizes; menu draws at 1920x1080.
+  - Headless local X->Y->Z run on alternate ports: 241 X H.264 frames,
+    X encode_ms 12-16, Z displayed 30 frames, e2e ~49-56 ms on localhost.
+  - Next: pull on the target PC, run .\run_local.cmd, choose MEDIUM,
+    and compare log_x.csv encode_ms (expect ~2-4 ms) and log_y.csv
+    mode/rtt.
+
+[2026-11-16 19:31 +09:00 | from X — 720p60 default + FPS counter]
+  - Defaults are now 1280x720 for the game world, X capture, and Z
+    window; Y fallback remains 960x540. 1080p is still available with
+    FYP_WIN_SIZE=1920x1080 and FYP_X_SIZE=1920x1080.
+  - X streams 60 fps by default again (FYP_X_STREAM_EVERY=1). 720p
+    render+encode: ~12.6 ms avg / ~14.2 ms p95 on X.
+  - z_client now draws a right-aligned "NN FPS" counter in the top
+    right corner during gameplay. It measures displayed frames per
+    second and uses the same green/orange X/Y colour as the status line.
+  - Headless local X->Y->Z run at 720p60: X encode_ms ~8.3 avg, Z
+    displayed 60.6 fps, e2e ~34 ms avg (15.6-81.9 ms) on localhost.
+  - For 1080p on this X use FYP_X_STREAM_EVERY=2 (30 fps); 60 fps at
+    1080p overloads Z and raises e2e.
+  - Verified: game-core tests pass, selftest hash still
+    30f043222e75fabf0ec80d2cd7edf6df, H.264 720p/960x540 round-trip
+    decodes correctly, menu/overlays render at 1280x720.
+
+[2026-11-16 19:39 +09:00 | from X — Z window visibility / stale launcher fix]
+  - Root cause of "window not popping out": the test shell exported
+    SDL_VIDEODRIVER=dummy, so Z ran headless. Re-running run_local also
+    left old X/Y processes holding 8000/8001, so the new tiers exited
+    while Z connected to the stale gateway.
+  - run_z.cmd now clears SDL_VIDEODRIVER before starting Z.
+  - run_local.cmd now clears SDL_VIDEODRIVER, test port/URI overrides,
+    FYP_SKIP_MENU, FYP_MENU_WORKLOAD and the short ping intervals, then
+    stops stale FYP python processes (x_server/y_gateway/z_client)
+    before starting a fresh X/Y/Z set.
+  - Verified: local run listens on 0.0.0.0:8000/8001/8002, Z has a real
+    pygame window ("Z - end node (WASD + SPACE)"), log_z.csv stays empty
+    until Start (menu is visible), and a started run shows 720p60 X
+    H.264 frames with typical local e2e ~27-32 ms.
+
+[2026-11-16 19:45 +09:00 | from X — tidy runtime logs]
+  - Deleted the temporary *.out/*.err stdout/stderr captures from the
+    automated X->Y->Z tests; they were not needed by the game.
+  - x_server/y_gateway/z_client now create logs/ and write
+    logs/log_x.csv, logs/log_y.csv, logs/log_z.csv there.
+  - Added logs/.gitkeep and ignored logs/* except that file, so runtime
+    output never clutters the repository root.
+  - README tree, log-column docs and commands now use logs/log_*.csv.
+  - Verified: py_compile passes, headless X->Y->Z writes all three CSVs
+    under logs/, no root-level log_*.csv or *.out/*.err remain, 8 tests
+    pass, selftest hash 30f043222e75fabf0ec80d2cd7edf6df.
+
+[2026-11-16 19:52 +09:00 | from X — first-game startup flood fix]
+  - Root cause of the first-game lag: X and Y were stepping their default
+    game and streaming 720p JPEG at 60 fps while Z was still on the menu.
+    The previous log had 457 JPEG frames over 7.6 s before the first H.264
+    frame, loading the CPU/socket queues before play began.
+  - X now has a playing flag: it ignores "in" messages until "start" (or a
+    restored snapshot) and stops on game over.
+  - Y now has state["playing"]; tick_loop idles on the menu, starts on
+    Z's start message, and stops on game over or when the last Z leaves.
+  - Verified: menu-only session produced 0 X frames and 0 Z frames
+    (Y still logs pings); auto-start session started with H.264 at tick 1
+    (no JPEG), 270 H.264 frames in 6 s, first keyframe encode 24.6 ms,
+    then ~7-8 ms/frame, first Z e2e 75.8 ms settling to ~30 ms.
+  - 8 game-core tests pass; py_compile passes.
+
+[2026-11-17 11:49 +09:00 | from X — gameplay config + visual editor]
+  - Added game_config.json (root) and game/settings.py. The file controls
+    player/bot/obstacle HP, speeds, damage, cooldowns, sizes, spawn ranges,
+    world size, particle cap and the three workload profiles.
+  - Added ui/config_menu.py + a GAME CONFIG button/C shortcut on Z. The
+    screen lists every value by section, supports Up/Down + Left/Right
+    editing (Shift x5), profile tabs 1/2/3, S save, R reload, D default.
+    Changes are saved atomically and apply on the next start.
+  - Z puts the config in every start message (initial, pause retry and
+    game-over retry). Y validates it, runs the same tuning, forwards it to X,
+    and includes it in resync snapshots. Defaults preserve the old game.
+  - Dashboard now shows live HP, tick, bots, obstacles, bullets, score,
+    deaths and active profile. game/__init__.py loads Game lazily so Z can
+    import settings without forcing the headless SDL driver.
+  - Verified custom config end-to-end (HP=77, medium bots=2, obstacles=4
+    reached both Y and X). 14 unit tests pass; legacy selftest hash is still
+    30f043222e75fabf0ec80d2cd7edf6df.
+
+[2026-11-19 15:50 +09:00 | from X — fix: 3 fps in EDGE Y, flapping, cloud video pause]
+  Diagnosis from logs/log_y.csv and logs/log_z.csv (remote X; Y and Z on the
+  same home PC, Tailscale direct 32 ms, rtt_zy 0.3 ms):
+    - Z displayed only Y keyframes: 81 Y frames, 78 with tick delta 20
+      (= 10-frame GOP x Y_STREAM_EVERY 2) -> 3 fps. Z's gap check compared
+      tick to +1 even though Y streams every 2nd tick, so every Y frame was
+      treated as a lost frame.
+    - CLOUD X itself was healthy: 60 fps, tick delta 1, e2e p50 44 ms,
+      p95 55 ms. The "150 ms" was a transient / the X<->Y RTT spike.
+    - X<->Y RTT p50 32.5 ms but spikes to ~100 ms; with the default 80/50
+      thresholds this caused 55 X<->Y transitions in 28 min.
+    - X kept streaming 720p60 / 8 Mbps while in fallback (Y-mode RTT p50 48,
+      p95 102), keeping the link busy and delaying recovery.
+
+  Fixes in this commit:
+    - z_client: stride-aware gap detection
+        step = X_STREAM_EVERY for 'x', Y_STREAM_EVERY for 'y'
+      Only a jump larger than the stride (or a backwards tick) counts as a
+      dropped frame. IMPORTANT: FYP_X_STREAM_EVERY / FYP_Y_STREAM_EVERY must
+      be identical on the encoding tier and on Z.
+    - y_gateway: force an IDR when entering EDGE Y, on link loss, and when Z
+      sends want_idr while in EDGE Y (it used to forward the request to X,
+      which was not the streaming tier). A per-Z queue overflow now also
+      requests/forces an IDR.
+    - x_server: while Y is in fallback it sends {"t":"stream","on":false};
+      X stops rendering/encoding (still steps the game and answers pings) and
+      resumes with an IDR. A render skipped due to input backlog now sets
+      need_key so the next encoded frame is an IDR.
+    - config: X_BITRATE default 8 Mbps -> 4 Mbps (safer on a WAN).
+
+  Verified locally (X+Y+Z on this PC, light workload, menu auto-start):
+    - CLOUD X: 60.6 fps, tick delta 1, encode 5.6 ms, e2e ~26 ms.
+    - forced EDGE Y: 30.3 fps, all tick deltas 2, e2e 9-12 ms; logs/log_x.csv
+      stays empty while X is paused (X console: "X video: paused (EDGE Y)").
+    - FYP_X_STREAM_EVERY=2 on X and Z: 30.4 fps, deltas 2, no keyframe waits.
+    - selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
+
+  Required on X, Y and Z:
+    1) git pull (all three tiers; the frame layout did not change, but the
+       stride and pause behaviour must match).
+    2) Use the same FYP_X_STREAM_EVERY / FYP_Y_STREAM_EVERY on the sender and
+       on Z (defaults 1 and 2 are correct).
+    3) On Y, calibrate for the lab link (see note.txt):
+         FYP_HIGH_MS=110, FYP_LOW_MS=75, FYP_BAD_COUNT=5, FYP_RECOVER_S=3
+    4) X now defaults to 4 Mbps. Raise FYP_X_BITRATE only if the link is clean.
+    5) If X's logs/log_x.csv shows encode_ms p95 above ~12 ms, set
+       FYP_X_STREAM_EVERY=2 on X AND Z (30 fps).
+
+[2026-11-19 16:40 +09:00 | from Y — Phase B: keyframe storm fix, 120 Hz input, threaded decode]
+  Changes in this commit:
+    - x_server: removed the len(q) < 3 skip and the need_key-on-skip. X now
+      renders every stream tick (encode is ~5.5 ms at 720p/60), so there are
+      no tick gaps and no forced IDRs from a backlog. log_x.csv gains a
+      `key` column (1 = IDR/keyframe).
+    - common/video.py: libx264 now uses scenecut=0, fixed keyint/min-keyint
+      = GOP, bframes=0, rc-lookahead=0, ipratio=1.1 and a VBV cap
+      (maxrate=bitrate, bufsize=bitrate/2). Optional intra-refresh.
+    - common/config.py: X_GOP default 30 -> 120; Z_INPUT_HZ=120
+      (FYP_Z_INPUT_HZ); X_INTRA_REFRESH (FYP_X_INTRA_REFRESH, default off).
+    - z_client.py: input sampling at 120 Hz (10 s sent history), H.264
+      decode in asyncio.to_thread, log_z.csv gains `first` and `decode_ms`,
+      and e2e/dashboard update only on the first frame per input seq.
+      Intra-refresh streams are decoded continuously (no decoder reset on
+      x264's small refresh "keyframe" flags).
+
+  Local verification (X+Y+Z on one PC, light workload, isolated cwd and
+  ports 9000-9002 so the live tiers were untouched):
+    - GOP120 + VBV: 60.2 fps, 0 skipped ticks, 6 keyframes in 11 s
+      (0.55/s) of 97-117 KB, encode p50 5.5 ms, Z first e2e p50 13.1 ms,
+      decode p50 3.9 ms.
+    - intra-refresh: 60.3 fps, 0 skipped ticks, max frame 17 KB, first
+      e2e 16.5 ms, decode 3.6 ms.
+    - The previous lab-X log (4f189b9, skip-IDR) had 3-5 keyframes/s of
+      100-200 KB and p50 90 / p90 142 ms. The keyframe size, not the
+      average bitrate, was causing the p90/jitter.
+
+  Required:
+    1) Home Y and Z: pull this commit and RESTART both tiers; the running
+       processes still have the old code.
+    2) Lab X: do NOT pull until the Cloud X Phase A tests (A0/A1/A2) on
+       4f189b9 are finished. Then pull, restart, and re-run A1/A2 with the
+       new code (default GOP 120, no skip-IDR, VBV).
+    3) Keep FYP_X_STREAM_EVERY and FYP_X_INTRA_REFRESH identical on X and Z
+       (Z needs them to interpret the frame stride and intra-refresh gaps).
+    4) X_GOP now defaults to 120. The A0 baseline from Phase A was GOP 30;
+       set FYP_X_GOP=30 explicitly if you want to reproduce that exact run.
+    5) If the lab uplink is the jitter bottleneck, test
+       FYP_X_INTRA_REFRESH=1 on X and Z: max frame ~20-50 KB, no periodic
+       IDR. A new Z gets an IDR through the caps handshake.
+
+  Next: remote measurement with the lab X after its Phase A tests.
+
+[2026-11-19 17:05 +09:00 | from Y — Phase A capture automation]
+  Problem: a 60-70 s capture dies whenever the player dies. Manual play cannot
+  guarantee an uninterrupted run, and a restart mid-capture invalidates it.
+
+  Added:
+    - game/settings.py: load_config/save_config honor FYP_GAME_CONFIG, so a test
+      config can be used without touching the repo game_config.json.
+    - tools/autoplay_z.ps1: writes %TEMP%\fyp_phaseA\game_config.json with
+      player max_hp=1000 (the clamp max), obstacle_damage=0, bot_damage=0 and
+      workload light. It stops only z_client.py (Y and its X link stay up),
+      starts Z from the repo with FYP_GAME_CONFIG / FYP_Y_IP / FYP_SKIP_MENU=1
+      (logs in the temp dir), then holds D/W/A/S and taps SPACE for -Minutes
+      (default 20). The player cannot take damage, so the match cannot end.
+
+  Consequence: A0, A1 and A2 must all use this Z build (7d54592 + the
+  FYP_GAME_CONFIG commit) and this immortal light config. The earlier
+  4f189b9/normal-HP A0 is not comparable — discard it and re-run A0.
+
+  Procedure:
+    1. Home:
+         powershell -ExecutionPolicy Bypass -File .\tools\autoplay_z.ps1 -Minutes 20
+       (auto-starts light; leaves the Y process running).
+    2. X agent: re-arm A0 with FYP_X_GOP=30, then A1 with FYP_X_GOP=120, then
+       A2 with FYP_X_GOP=120 + FYP_X_SIZE=960x540. Keep the same Z match alive
+       through all three X restarts.
+    3. Pause/stream check: Ctrl+C the autoplay (Z stays up and immortal), then
+       dashboard ?ip=127.0.0.1 200 ms -> "X video: paused (EDGE Y)",
+       0 ms -> streaming.
+    4. After Phase A: stop the script's Z, restart home Y and Z on 7d54592,
+       lab X pulls 7d54592, then re-run the Phase B measurements.
+
+  Validation: the temp config loads as max_hp=1000 / damage 0 / light; the
+  default repo config is still max_hp=100 / damage 5; unittest 14 tests OK;
+  selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
+
+[2026-11-19 17:45 +09:00 | from Y — Phase 1: test runner protocol, Z test mode, reports]
+  Added:
+    - common/testplan.py: TestPlan/Event validation, presets, timeline segments,
+      p50/p90/p99 summaries.
+    - common/report.py: logs/reports/<id>.json + .csv, newest-first history, safe load.
+    - y_gateway.py: TestRunner (start / warm-up / measure / pause / resume / stop),
+      dashboard commands (test_start, test_pause, test_resume, test_stop, set_plan,
+      list_reports, get_report), timeline delay/mode events through DelayLine,
+      Z control queue, X/Y FPS windows, automatic report on finish.
+    - z_client.py: FYP_TEST=1 mode (no menu), test start/pause/resume/stop/pattern,
+      scripted input patterns, TEST overlay, FPS/decode stats in input messages.
+    - tools/test_cli.py + tools/plans/phase1_smoke.json; tests/test_testplan.py,
+      tests/test_report.py; README "Test Control Panel (Phase 1)".
+
+  Smoke (isolated ports 9000-9002, temp cwd, 960x540 X, SDL dummy Z):
+    2 s warm-up + 10 s measure, 100 ms delay at 2-5 s, 2 s pause, pattern shoot at 8 s.
+    Report: e2e p50 15.6 / p90 119.6 ms; RTT p50 3.8 / p90 105.8 ms;
+    X/Y ~60 fps; Z 59.7 fps. Pause/resume, timeline delay, auto-finish and
+    report download path verified.
+
+  IMPORTANT: the live home PC currently has TWO Y processes (PIDs 2876 and
+    22292; 22292 owns 8000/8002) and TWO Z processes (PIDs 31848 and 22252).
+    This is the duplicate-process problem again and it invalidates the current
+    A0. Kill the duplicates, start ONE Y/Z pair, and re-run A0 before trusting
+    Phase A data.
+
+  Next: Phase 2 Tk panel; Phase 3 X stats/stop/runtime video after Phase A.
+
+[2026-11-21 11:17 +09:00 | from Y — repo tidy]
+  Layout:
+    - dashboard.html -> web/dashboard.html
+    - note.txt       -> docs/latency-notes.md
+    - GAME_MVP_PLAN.md -> docs/archive/GAME_MVP_PLAN.md
+    - stale root log_x.csv / log_y.csv / log_z.csv -> logs/raw/ (git-ignored)
+    - common/game.py kept (selftest oracle; docstring now says so)
+    - sync.txt stays at the repository root as the cross-tier handoff
+  New docs/test-panel.md: protocol, plan/report schema, Phase 2/3 plan.
+  README rewritten for the new layout, Phase 1 test panel, logs/reports,
+  duplicate-process troubleshooting and docs links.
+
+  No code behaviour changes. Validation: py_compile OK, 27 unittest tests OK,
+  selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
+  Lab X remains pinned to 4f189b9; do NOT pull on X.
+
+  Note: the live home PC still has duplicate Y/Z processes
+  (PIDs 2876/22292 Y, 31848/22252 Z). Kill all but one pair before any
+  Phase A or test-panel run.
+
+[2026-11-21 11:25 +09:00 | from Y — architecture direction: task-level placement]
+  README Architecture now separates:
+    - Baseline whole-pipeline (implemented): X A-E + render/stream, Y proxy/
+      fallback, Z input/display.
+    - Task model A-E (simulation / AI / hit registration / render / encode),
+      L leaderboard pinned to X, U UI local to Z. F-K and M-T are reserved for
+      future task splits; the semantic task count is not fixed.
+    - Placement patterns (planned): All Cloud, Offload A/B, All Edge, Pinned L;
+      the legacy whole-pipeline remains the comparison mode.
+    - Pattern axes: placement pattern vs legacy mode vs video preset vs
+      workload / input / delay timeline.
+    - Implementation status: A-E + U partial; L, router, placement table and
+      local A/B copies planned; Phase 2 Tk panel; Phase 3 X runtime video.
+
+  docs/test-panel.md now marks `mode` as legacy and `placement` as planned.
+  No code changes. Lab X remains pinned to 4f189b9; do NOT pull on X.
+
+[2026-11-21 14:58 +09:00 | from Y / home PC — docs + AGENTS workflow]
+  - Moved docs/latency-notes.md -> docs/notes/latency-notes.md.
+  - Kept docs/test-panel.md at the docs root as the guide; added docs/guides/.
+  - Added .gitkeep in docs/notes, docs/plans, docs/guides.
+  - Added AGENTS.md + docs/References/ (placement, research, plans, sync,
+    implementation). AGENTS now has the machine table, commands, current
+    phase/branch, lab X pin, duplicate-Y/Z warning and no-push/PR/pull rule.
+  - Updated README Directory Structure and Documentation links.
+  - No code changes. Lab X remains pinned to 4f189b9; no push/commit.
+
+[2026-11-23 14:25 +09:00 | from Y / home PC — AGENTS process-cleanup rule; stale Y cleanup]
+  - AGENTS.md section 8: after testing, implementation or debugging, kill every
+    test process and terminal started (test Y/Z/X, test_cli.py, autoplay,
+    background Start-Process/console); no stale listeners on 8000/8001/8002;
+    verify with Get-NetTCPConnection and Get-CimInstance; only requested
+    long-running tiers may stay up.
+  - Applied it: killed the stale Ys (PIDs 20320, 9748); 8000/8002 free; no
+    y_gateway/z_client/test_cli processes left.
+  - Lab X was pulled to cda0f52; Phase A A0/A1/A2 archived under logs/raw.
+  - No push. Next: start X + one Y/Z, Phase B smoke, Phase 2 Tk panel.
+
+[2026-11-23 14:31 +09:00 | from Y / home PC — AGENTS rule-authoring/reference rule]
+  - AGENTS.md section 9: universal rules stay in AGENTS.md; task-specific rules
+    go to docs/References/<topic>.md with a one-line pointer and a “read when…”
+    note; do not inline task-specific detail or read unused references (saves
+    the agent context/token window). Existing placement/research/plans/sync
+    references are the examples.
+  - No new reference needed for this rule (it is universal).
+  - No code changes. No commit/push.
+
+[2026-11-23 14:33 +09:00 | from Y / home PC — AGENTS tidy per rule 9]
+  - AGENTS.md reduced to universal rules + “read when…” pointers.
+  - Topology/machines/current status moved to docs/References/context.md.
+  - Commands/environment moved to docs/References/commands.md.
+  - README Directory Structure/Documentation updated for the new references.
+  - No code changes. No commit/push.
+
+[2026-11-23 14:59 +09:00 | from Y / home PC — universal workstream naming + roadmap]
+  - Renamed active workstream labels to WS0-WS4 (no more Phase A/B or Phase 1/2/3).
+  - Active plans: phase1_smoke.json -> ws2_1_smoke.json; phaseA_A0/A1/A2.json
+    -> ws1_1_a0/a1/a2.json; added ws1_3_a1.json (WS1.3 post-fix).
+  - Added docs/References/roadmap.md: workstreams, schedule, current progress,
+    next step and the old -> new mapping.
+  - Updated README, AGENTS, context, commands, sync.md, test-panel, code
+    comments/report field, autoplay temp dir, and game/test docstrings.
+  - A0/A1/A2 remain video presets, not phases.
+  - Historical data retained and mapped: logs/raw/phaseA_*, logs/reports/2026*,
+    docs/archive/GAME_MVP_PLAN.md (Milestones 1-6), old sync entries.
+  - Validation: plan-load OK; 27 unittest OK; selftest hash
+    30f043222e75fabf0ec80d2cd7edf6df unchanged; git diff --check clean.
+  - No commit/push. Lab X at cda0f52 (WS1.2); WS1.3 smoke next.
+
+[2026-11-23 15:26 +09:00 | from Y / home PC — WS naming committed/pushed]
+  - Commit c4aca37 "WS naming: unify workstreams, rename plans, add roadmap and schedule" pushed to origin/feature/Cloud_X.
+  - This sync entry is a separate follow-up commit.
+  - Lab X remains at cda0f52; no lab X pull; no further code changes.
+  - Next: WS1.3 post-fix smoke (needs the lab X + one Y/Z).
+
+[2026-11-23 15:37 +09:00 | from Y / home PC — WS1.3 post-fix measurement]
+  - Report 20261123-153034; plan WS1.3-A1, mode=cloud forced, 5+60 s.
+  - Result: e2e p50 79.2 / p90 108.94 / p99 263.96 / max 461.8 ms;
+    RTT p50 63.0 / p90 82.16 / max 216.4 ms; X 60.0 fps, Z 59.8 fps;
+    Z decode p50 2.9 ms; X encode unavailable until WS2.3.
+  - WS1.1-A1 was e2e p50 62.4 / p90 85.8; WS1.3 is worse, consistent with
+    the higher current RTT. First attempt auto-switched to Y and is invalid.
+  - Report is in logs/reports/20261123-153034.json/.csv. Lab X log still needed.
+  - Next: WS2.2 Tk panel; repeat WS1.3 after RTT/network recalibration.
+
+[2026-11-23 16:00 +09:00 | from Y / home PC — branch/release model documented]
+  - Added docs/References/branches.md: main/dev/feature/release; node split at release; X/Y/Z bundles.
+  - README: Branching and releases section; documentation link; WS1.3 archive status corrected.
+  - AGENTS reference; roadmap status/HEAD and related docs; cleanup-rule wording.
+  - Docs-only validation; 27 tests + selftest unchanged; no code changes.
+  - Next: create dev + feature/ws2.2-test-panel; WS2.2 Tk panel.
+
+[2026-11-23 16:20 +09:00 | from Y / home PC — branches created, WS2.2 Tk panel shipped]
+  - Branch model in use: dev and feature/ws2.2-test-panel created from feature/Cloud_X and pushed.
+    Development continues on the feature branch; X/Y/Z split stays a release step.
+  - New: tools/test_panel.py (Tk 8.6 + websocket reader thread) and tools/panel_model.py
+    (headless plan/progress/protocol logic). tests/test_panel_model.py (26) and
+    tests/test_panel_smoke.py (2 Tk build/close) -> suite 54 tests OK.
+  - Panel: plan editor (load/save/apply/preview), timeline events + ASCII timeline,
+    Start/Pause/Resume/Terminate, progress/next event, live metrics, report list +
+    JSON view + CSV export, Launch Z (FYP_TEST=1) and Focus Z, browser dashboard link.
+  - Live E2E through the panel: Y + headless Z; phases idle > warmup > running > paused >
+    running > finished; report 20261123-161423 (40 samples, e2e p50 13.7 / p90 15.88,
+    mode Y because no X was up). Report kept in logs/reports/.
+  - Cleanup: the E2E Y/Z pair and a leftover duplicate Y were stopped; no Y/Z running now.
+  - Docs: README (WS2.2 section, status, tree), docs/test-panel.md (panel guide),
+    commands.md, context.md, roadmap.md (WS2.2 done; WS2.3 next).
+  - Validation: 55 tests, selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
+  - Next: WS2.3 X runtime video/stats/stop; then WS3 task router/placement.
+
+[2026-11-23 16:25 +09:00 | from Y / home PC — WS2.2 committed/pushed]
+  - Commit 7a9b0fb pushed to origin/feature/ws2.2-test-panel (10 files, +1643/-48).
+  - This sync header/entry is a separate follow-up commit; dev then fast-forwards to it.
+  - Lab X remains at cda0f52; no lab X pull; no behaviour change for X/Y outside the panel.
+  - Next: WS2.3 (X video/stats/stop), then WS3.1 task router.
+
+END OF SYNC
+

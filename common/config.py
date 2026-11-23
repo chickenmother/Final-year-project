@@ -1,24 +1,90 @@
-# ---- EDIT THESE TWO LINES ON ALL 3 MACHINES (use `ipconfig` to find them) ----
-X_IP = "192.168.1.10"   # desktop  (cloud X)
-Y_IP = "192.168.1.11"   # laptop A (edge gateway Y)
+"""Shared configuration. The SAME file is used unchanged on all three machines.
 
-#testing on my local machine, so I just use localhost for both
-#X_IP = "127.0.0.1"
-#Y_IP = "127.0.0.1"
-# ------------------------------------------------------------------------------
+Each tier only needs the address of the tier it CONNECTS TO:
+  Cloud X  : nothing            (binds 0.0.0.0 on X_PORT)
+  Middle Y : FYP_X_IP           (address of Cloud X)
+  End Z    : FYP_Y_IP           (address of Middle Y)
 
-X_PORT, Y_PORT_Z, Y_PORT_DASH = 8001, 8000, 8002
-X_URI = f"ws://{X_IP}:{X_PORT}"
-Y_URI = f"ws://{Y_IP}:{Y_PORT_Z}"
+The run_*.ps1 launchers set these variables for you. For a single-machine demo
+the defaults (127.0.0.1) are correct and no configuration is needed.
+"""
+import os
+
+# bind addresses, never connect targets
+X_HOST = os.environ.get("FYP_X_HOST", "0.0.0.0")
+Y_HOST = os.environ.get("FYP_Y_HOST", "0.0.0.0")
+
+# connect targets (use `ipconfig` to find each machine's LAN address)
+X_IP = os.environ.get("FYP_X_IP", "127.0.0.1")   # read by Middle Y
+Y_IP = os.environ.get("FYP_Y_IP", "127.0.0.1")   # read by End Z / dashboard
+
+X_PORT = int(os.environ.get("FYP_X_PORT", "8001"))
+Y_PORT_Z = int(os.environ.get("FYP_Y_PORT_Z", "8000"))
+Y_PORT_DASH = int(os.environ.get("FYP_Y_PORT_DASH", "8002"))
+
+X_URI = os.environ.get("FYP_X_URI", f"ws://{X_IP}:{X_PORT}")
+Y_URI = os.environ.get("FYP_Y_URI", f"ws://{Y_IP}:{Y_PORT_Z}")
+
+# websocket keepalive: a dead Wi-Fi link is detected in ~PING_INTERVAL + PING_TIMEOUT
+PING_INTERVAL = float(os.environ.get("FYP_PING_INTERVAL", "15"))
+PING_TIMEOUT = float(os.environ.get("FYP_PING_TIMEOUT", "15"))
+RECONNECT_S = 2.0       # wait before dialling X / Y again
+
+def _pair(name, default):
+    w, h = os.environ.get(name, default).lower().split("x")
+    return int(w), int(h)
+
 
 TICK_RATE = 60          # game ticks per second (each tick = 4 original 240 FPS frames)
-X_STREAM_EVERY = 1      # X sends a frame every tick -> 60 fps
-Y_STREAM_EVERY = 2      # Y sends a frame every 2nd tick -> 30 fps
+# 720p leaves enough budget for the full 60 fps render + encode path on the
+# reference X. Set FYP_X_STREAM_EVERY=2 to fall back to 30 fps if a machine
+# cannot keep up (for example, a slow CPU or a much larger FYP_X_SIZE).
+X_STREAM_EVERY = max(1, int(os.environ.get("FYP_X_STREAM_EVERY", "1")))
+Y_STREAM_EVERY = int(os.environ.get("FYP_Y_STREAM_EVERY", "2"))   # 2 -> 30 fps
+# End Z uses these to distinguish a normal frame stride from a lost frame,
+# so keep them identical on the sending tier and on Z.
+Y_FPS = max(1, TICK_RATE // Y_STREAM_EVERY)
 
-WIN_W, WIN_H = 960, 540             # window on Z
-X_SIZE, X_QUALITY = (960, 540), 80  # cloud X: high quality
-Y_SIZE, Y_QUALITY = (480, 270), 40  # edge Y: low quality (weaker node)
+# Middle Y fallback encoder. Set FYP_Y_CODEC=jpeg to force the old path.
+# Uppercase source bytes ('X'/'Y') are JPEG; lowercase ('x'/'y') is H.264.
+Y_CODEC = os.environ.get("FYP_Y_CODEC", "h264").lower()
+Y_ENCODER = os.environ.get("FYP_Y_ENCODER", "libx264").lower()
+Y_BITRATE = int(os.environ.get("FYP_Y_BITRATE", "2000000"))
+Y_GOP = int(os.environ.get("FYP_Y_GOP", "10"))
 
-HIGH_MS, LOW_MS = 80, 50   # RTT(X<->Y) thresholds: > HIGH -> use Y, < LOW -> back to X
-BAD_COUNT = 3              # consecutive bad pings (0.2 s apart) before switching to Y
-RECOVER_S = 3.0            # RTT must stay < LOW_MS this long before switching back to X
+# Cloud X encoder. X only uses H.264 when every connected Z advertised support
+# (Middle Y forwards that capability); otherwise it keeps sending JPEG.
+X_FPS = max(1, TICK_RATE // X_STREAM_EVERY)
+X_CODEC = os.environ.get("FYP_X_CODEC", "h264").lower()
+X_ENCODER = os.environ.get("FYP_X_ENCODER", "libx264").lower()
+# 4 Mbps is a safer default on a WAN; raise it for a LAN-only demo.
+X_BITRATE = int(os.environ.get("FYP_X_BITRATE", "4000000"))
+# 120 frames = 2 s at 60 fps. A long GOP keeps the 100-200 KB keyframe bursts
+# rare; IDR-on-request still recovers a dropped frame within one RTT.
+X_GOP = int(os.environ.get("FYP_X_GOP", "120"))
+
+# Experimental: x264 intra-refresh removes periodic IDR bursts entirely
+# (max frame ~50 KB instead of ~120-220 KB). It has no periodic keyframe, so
+# End Z must be started with the same FYP_X_INTRA_REFRESH=1 to keep decoding
+# through a gap instead of waiting for a keyframe.
+X_INTRA_REFRESH = os.environ.get("FYP_X_INTRA_REFRESH", "0") == "1"
+
+WIN_W, WIN_H = _pair("FYP_WIN_SIZE", "1280x720")      # window on Z
+X_SIZE = _pair("FYP_X_SIZE", "1280x720")              # cloud X capture size
+Y_SIZE = _pair("FYP_Y_SIZE", "960x540")                # edge Y capture size
+X_QUALITY = int(os.environ.get("FYP_X_QUALITY", "80"))
+Y_QUALITY = int(os.environ.get("FYP_Y_QUALITY", "55"))
+
+# RTT(X<->Y) thresholds: > HIGH_MS -> use Y, < LOW_MS -> back to X.
+# On a WAN calibrate these around the measured baseline: HIGH ~= p50 + 35, LOW ~= p50 + 15.
+HIGH_MS = float(os.environ.get("FYP_HIGH_MS", "80"))
+LOW_MS = float(os.environ.get("FYP_LOW_MS", "50"))
+BAD_COUNT = int(os.environ.get("FYP_BAD_COUNT", "3"))         # bad pings before switching to Y
+RECOVER_S = float(os.environ.get("FYP_RECOVER_S", "3.0"))     # time below LOW_MS to go back to X
+
+# Z input sampling rate. 120 Hz halves the average age of a key press at the
+# next 60 Hz simulation tick (the input itself is a key state, not an event).
+Z_INPUT_HZ = max(1, int(os.environ.get("FYP_Z_INPUT_HZ", "120")))
+
+# Z measures the Z<->Y hop by sending {"pts": <clock>} every N input messages; Y echoes it.
+Z_PING_EVERY = int(os.environ.get("FYP_Z_PING_EVERY", "6"))

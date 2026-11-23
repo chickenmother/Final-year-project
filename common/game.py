@@ -8,6 +8,9 @@ Changes vs the original (needed for the network setup):
   * original ran at 240 FPS; we run 60 network ticks/s, each tick = 4 original frames (SUBSTEPS)
   * when the player crashes the game restarts (original just quit) so the test can run forever
   * pygame sprites replaced by plain Rects so the state is easy to snapshot
+
+This module is the legacy deterministic game used by ``selftest.py`` as a
+cross-tier reference oracle. The X/Y runtime uses ``game/simulation.py``.
 """
 import io
 import os
@@ -172,7 +175,7 @@ class Game:
         self.rng.setstate((v, tuple(internal), g))
 
     # ---------------- rendering (the ONLY part that differs in quality X vs Y) ----------------
-    def render(self, size, quality, smooth=True):
+    def render_image(self, size, smooth=True):
         f = _FRAME
         f.fill(BLACK)
         f.blit(BG, (0, 0))
@@ -182,6 +185,16 @@ class Game:
         for b in self.bullets:
             f.blit(BULLET_IMG, b)
         small = (pygame.transform.smoothscale if smooth else pygame.transform.scale)(f, size)
+        return Image.frombytes("RGB", size, pygame.image.tobytes(small, "RGB"))
+
+    def render(self, size, quality, smooth=True):
+        img = self.render_image(size, smooth)
         buf = io.BytesIO()
-        Image.frombytes("RGB", size, pygame.image.tobytes(small, "RGB")).save(buf, "JPEG", quality=quality)
+        img.save(buf, "JPEG", quality=quality)
         return buf.getvalue()
+
+
+# Optional task-oriented core. The legacy class above stays the default so the
+# existing simulator and its determinism hash are unchanged.
+if os.environ.get("FYP_GAME_CORE", "").lower() == "v2":
+    from game.simulation import Game as Game  # noqa: F811
