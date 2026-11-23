@@ -1,11 +1,11 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-23 16:25 +09:00   (from Y / home PC)
+Last updated : 2026-11-23 16:47 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
-Branch : feature/ws2.2-test-panel   (dev branched off feature/Cloud_X)
-HEAD   : 7a9b0fb  "WS2.2: Tk control panel (plan editor, run controls, metrics, reports, Z launch)"
-         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.2 complete)
+Branch : feature/ws2.3-x-runtime   (branched from the merged dev; main has PR #1)
+HEAD   : 5ebe93a  "WS2.3: X runtime video/stats/stop + panel and report wiring"
+         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.2 + WS2.3 complete)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
@@ -861,6 +861,12 @@ HEAD   : 7a9b0fb  "WS2.2: Tk control panel (plan editor, run controls, metrics, 
   - Cleanup: X/Y/Z stopped after the run; no python tiers left, 8000/8001/8002 free.
   - Validation: 68 tests, selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
   - Lab X still at cda0f52 (needs a pull for WS2.3 before the next lab capture).
+  - Next: WS3.1 task router + All Cloud placement.
+
+[2026-11-23 16:47 +09:00 | from Y / home PC — WS2.3 committed/pushed]
+  - Commit 5ebe93a pushed to origin/feature/ws2.3-x-runtime (15 files).
+  - This sync header/entry is a separate follow-up commit; dev then fast-forwards.
+  - Lab X remains at cda0f52; pull it before the next lab capture.
   - Next: WS3.1 task router + All Cloud placement.
 
 END OF SYNC
