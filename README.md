@@ -9,7 +9,7 @@
 | **Institution** | Kyushu Sangyo University, Department of Information Science |
 | **Programme** | Final Year Project |
 | **Academic Year** | 2025/2026 |
-| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 test runner/CLI shipped; WS1.3 post-fix smoke completed (`20261123-153034`); WS2.2 Tk control panel shipped (panel-driven E2E run `20261123-161423`); WS2.3 X runtime control next; task-level placement (WS3) planned |
+| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 test runner/CLI shipped; WS1.3 post-fix smoke completed (`20261123-153034`); WS2.2 Tk control panel shipped; WS2.3 X runtime video/stats/stop shipped (E2E `20261123-164025`, live A1→A2 switch at 60 fps); task-level placement (WS3) next |
 
 A final year project modelling a **3-tier vertical cloud gaming architecture** — **End Node (Z) → Middle Edge Gateway (Y) → Cloud Server (X)** — under simulated network latency degradation.
 
@@ -113,9 +113,9 @@ The test plan currently has `mode` (legacy) and `video_preset` (video); the plan
 
 ### Implementation status
 
-- **Implemented:** whole-pipeline baseline; A–E game core; U menu/overlay/config (partial); H.264/JPEG; Y fallback; test runner/reports; Z test mode; WS2.2 Tk control panel.
+- **Implemented:** whole-pipeline baseline; A–E game core; U menu/overlay/config (partial); H.264/JPEG; Y fallback; test runner/reports; Z test mode; WS2.2 Tk control panel; WS2.3 X runtime `video`/`stats`/`stop`.
 - **Partial:** B (no pathfinding); U (leaderboard placeholder); no L.
-- **Planned:** Y task router/placement table; local A/B copies; L SQLite on X; leaderboard view; per-task metrics; test-panel placement axis; WS2.3 X runtime video.
+- **Planned:** Y task router/placement table; local A/B copies; L SQLite on X; leaderboard view; per-task metrics; test-panel placement axis.
 
 
 
@@ -144,6 +144,7 @@ FYP/
 │   ├── report.py                # test report JSON/CSV + history
 │   ├── testplan.py              # plan/event validation, timeline, summary math
 │   ├── video.py                 # PyAV H.264 encoder/decoder
+│   ├── xstats.py                # WS2.3 rolling X encoder stats (fps/encode/keyframes)
 │   └── win.py                   # 1 ms Windows timer helper
 ├── game/                        # runtime game core (used by X and Y)
 │   ├── entities.py              # player, bot, obstacle, bullet, particle
@@ -175,7 +176,8 @@ FYP/
 │   ├── test_testplan.py
 │   ├── test_report.py
 │   ├── test_panel_model.py      # WS2.2 plan/progress/protocol logic
-│   └── test_panel_smoke.py      # WS2.2 Tk build + close
+│   ├── test_panel_smoke.py      # WS2.2 Tk build + close
+│   └── test_xstats.py           # WS2.3 rolling encoder stats
 ├── docs/
 │   ├── test-panel.md            # test protocol, reports, panel guide
 │   ├── notes/
@@ -479,18 +481,40 @@ What it does:
   for the pygame window;
 - a link back to the browser dashboard (`web/dashboard.html?ip=<Y_ADDRESS>`) as a remote monitor.
 
-The panel never talks to X directly — Y owns the run, the timeline and the report. The video
-preset is recorded in the plan/report but X still uses its startup `FYP_X_*` values until WS2.3,
-so the **X encode ms** metric stays blank for now. The placement pattern becomes selectable once
-the WS3 task router lands.
+The panel never talks to X directly — Y owns the run, the timeline and the report; **Apply video
+to X** (and a plan's `video_preset` at start) are forwarded by Y as WS2.3 runtime commands. The
+live metrics show X fps, encode p50/p95, keyframes/s, frame KB and the preset X confirmed. The
+placement pattern becomes selectable once the WS3 task router lands.
 
-### WS2.3 — X runtime control (planned)
+### WS2.3 — X runtime video/stats/stop (implemented)
 
-- `video` command: GOP/resolution/bitrate/intra-refresh with encoder rebuild + IDR.
-- `stats`: fps/encode p50/p95/keyframes/bytes for the panel's live metrics.
-- `stop`: stop stepping/streaming without killing the X process.
+`x_server.py` accepts three control messages from Y, so the encoder no longer needs a restart
+between presets:
 
-Until then X uses its startup `FYP_X_*` values and the report records `video_runtime: current`.
+| Command | Payload | Effect |
+|---|---|---|
+| `video` | `{gop, size:[w,h], bitrate, intra_refresh}` | rebuild the H.264 encoder in a worker thread, drop queued frames, force an IDR; replies `video_ok` with the encoder actually used, or an `error` (the previous encoder stays) |
+| `stats` | `{on: true/false}` | push `x_stats` (`fps`, `encode_p50`, `encode_p95`, `keyframes_s`, `frame_kb`, `frames`) at 1 Hz |
+| `stop` | — | stop stepping/streaming without killing the process; replies `stopped` |
+
+How to drive it:
+
+- **Panel:** pick a preset, press **Apply video to X**; or set the plan's video preset — Y applies
+  it on `test_start`.
+- **Y dashboard protocol:** `{"cmd":"x_video","preset":"A1"}`, `{"cmd":"x_stats","on":true}`,
+  `{"cmd":"x_stop"}`.
+
+The report now records `environment.video_runtime` (`applied (WS2.3)` / `current (fixed)`),
+`video_applied` (what X confirmed) and the samples carry `x_encode`, `x_encode_p95` and `x_kf`
+(summarised as p50/p90/p99/max like the other metrics).
+
+Caveats:
+
+- `A2` changes the resolution mid-stream; X forces an IDR and End Z resets its decoder on the
+  keyframe, which is why the swap is safe while streaming (verified at 60 fps).
+- `intra` switches x264 to intra-refresh, which has **no periodic IDR**; End Z must already be
+  running with `FYP_X_INTRA_REFRESH=1` (the same rule as a normal start).
+- A rebuild failure keeps the old encoder and reports an error; the run continues.
 
 ---
 

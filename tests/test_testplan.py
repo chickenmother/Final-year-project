@@ -3,12 +3,14 @@ import json
 import unittest
 
 from common.testplan import (
+    SUMMARY_KEYS,
     Event,
     PlanError,
     TestPlan,
     demo_plan,
     percentile,
     summarize,
+    video_payload,
 )
 
 
@@ -116,6 +118,34 @@ class TestPlanTests(unittest.TestCase):
         plan.validate()
         self.assertEqual(plan.duration_s, 10)
         self.assertEqual(len(plan.events), 2)
+
+    def test_video_payload_for_presets(self):
+        a0 = video_payload("A0")
+        self.assertEqual(a0["t"], "video")
+        self.assertEqual(a0["gop"], 30)
+        self.assertEqual(a0["size"], [1280, 720])
+        self.assertFalse(a0["intra_refresh"])
+        a2 = video_payload("a2")                  # case-insensitive
+        self.assertEqual(a2["size"], [960, 540])
+        self.assertEqual(a2["gop"], 120)
+        intra = video_payload("intra")
+        self.assertTrue(intra["intra_refresh"])
+        self.assertIsNone(video_payload("current"))
+        self.assertIsNone(video_payload("nope"))
+        json.dumps(a0)                            # must be wire-ready
+
+    def test_video_command_matches_preset(self):
+        plan = TestPlan(video_preset="A1")
+        command = plan.video_command()
+        self.assertEqual(command["gop"], 120)
+        self.assertEqual(command["size"], [1280, 720])
+        self.assertIsNone(TestPlan(video_preset="current").video_command())
+
+    def test_summary_covers_runtime_video_metrics(self):
+        self.assertIn("x_encode", SUMMARY_KEYS)
+        self.assertIn("x_encode_p95", SUMMARY_KEYS)
+        self.assertIn("x_kf", SUMMARY_KEYS)
+
 
 
 if __name__ == "__main__":

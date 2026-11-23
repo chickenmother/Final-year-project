@@ -17,3 +17,5 @@ py -3.13 -m venv venv
 - Dashboard: `web/dashboard.html?ip=<Y_ADDRESS>`.
 - Unattended Z: `$env:FYP_TEST = "1"` before `run_z.cmd` (or the panel's **Launch Z (test)**).
 - Panel logic tests: `tests/test_panel_model.py`; Tk build/close: `tests/test_panel_smoke.py`.
+- Runtime X preset (WS2.3): panel **Apply video to X**, or the Y dashboard message
+  `{"cmd":"x_video","preset":"A1"}` (`A0`/`A1`/`A2`/`intra`).

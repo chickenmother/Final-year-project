@@ -168,6 +168,24 @@ class LiveStateTests(unittest.TestCase):
         self.assertEqual(pm.metrics({})["mode"], "-")
         self.assertEqual(pm.fmt("abc"), "abc")
 
+    def test_metrics_from_x_stats_and_applied_video(self):
+        state = {"x_stats": {"encode_p50": 5.44, "encode_p95": 8.06,
+                             "keyframes_s": 0.52, "frame_kb": 110.4},
+                 "x_video": {"size": [1280, 720], "gop": 120,
+                             "intra_refresh": False}}
+        values = pm.metrics(state)
+        self.assertEqual(values["x_encode"], "5.4")
+        self.assertEqual(values["x_encode_p95"], "8.1")
+        self.assertEqual(values["x_kf"], "0.52")
+        self.assertEqual(values["x_kb"], "110.4")
+        self.assertEqual(values["x_video"], "1280x720 GOP 120")
+        intra = pm.metrics({"x_video": {"size": [960, 540], "gop": 120,
+                                        "intra_refresh": True}})
+        self.assertEqual(intra["x_video"], "960x540 GOP 120 intra")
+        self.assertEqual(pm.metrics({})["x_encode"], "-")
+        self.assertEqual(pm.video_label(None), "-")
+
+
     def test_buttons_per_phase(self):
         self.assertTrue(pm.buttons("idle")["start"])
         self.assertFalse(pm.buttons("running")["start"])
@@ -192,6 +210,17 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(pm.list_payload(), {"cmd": "list_reports"})
         with self.assertRaises(ValueError):
             pm.control_payload("launch")
+
+    def test_x_runtime_payloads(self):
+        self.assertEqual(pm.x_video_payload("A1"),
+                         {"cmd": "x_video", "preset": "A1"})
+        self.assertEqual(pm.x_video_payload("intra"),
+                         {"cmd": "x_video", "preset": "intra"})
+        self.assertIsNone(pm.x_video_payload("current"))
+        self.assertEqual(pm.x_stats_payload(), {"cmd": "x_stats", "on": True})
+        self.assertEqual(pm.x_stats_payload(False),
+                         {"cmd": "x_stats", "on": False})
+        self.assertEqual(pm.x_stop_payload(), {"cmd": "x_stop"})
 
     def test_parse_message(self):
         state = {"mode": "X", "rtt": 60, "test": {"state": "running"}}

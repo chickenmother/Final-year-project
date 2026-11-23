@@ -844,5 +844,24 @@ HEAD   : 7a9b0fb  "WS2.2: Tk control panel (plan editor, run controls, metrics, 
   - Lab X remains at cda0f52; no lab X pull; no behaviour change for X/Y outside the panel.
   - Next: WS2.3 (X video/stats/stop), then WS3.1 task router.
 
+[2026-11-23 16:45 +09:00 | from Y / home PC — WS2.3 X runtime video/stats/stop shipped]
+  - New: common/xstats.py (rolling fps/encode p50-p95/keyframes/frame KB) and three
+    X control messages: video (rebuild encoder + force IDR), stats (1 Hz push),
+    stop (stop stepping/streaming without killing X).
+  - Y applies plan.video_command() at test_start, subscribes to x_stats, records
+    environment.video_runtime/video_applied and samples x_encode/x_encode_p95/x_kf
+    (added to SUMMARY_KEYS). Dashboard commands: x_video / x_stats / x_stop.
+  - Panel: "Apply video to X" button; metrics add X encode p50/p95, keyframes/s,
+    frame KB and the confirmed preset. Tests 55 -> 68.
+  - Local 3-tier E2E (local X + Y + headless Z), report 20261123-164025:
+    idle A0/A2/A1 switches confirmed, run started with A1, mid-run switch to A2;
+    X 60.0 fps, encode p50 4.96 / p95 5.56 ms, 0.5 keyframes/s, Z 60.0 fps,
+    e2e p50 15.4 / p90 17.32 ms (localhost); video_runtime "applied (WS2.3)",
+    video_applied 960x540 GOP 120; 49/49 samples carry x_encode.
+  - Cleanup: X/Y/Z stopped after the run; no python tiers left, 8000/8001/8002 free.
+  - Validation: 68 tests, selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
+  - Lab X still at cda0f52 (needs a pull for WS2.3 before the next lab capture).
+  - Next: WS3.1 task router + All Cloud placement.
+
 END OF SYNC
 

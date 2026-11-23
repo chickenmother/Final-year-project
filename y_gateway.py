@@ -6,7 +6,7 @@ from websockets.asyncio.server import serve
 from common import config as C
 from common import report as report_mod
 from common.net import lan_ip, quiet_handshake_errors
-from common.testplan import MODE_OVERRIDE, PlanError, TestPlan
+from common.testplan import MODE_OVERRIDE, PlanError, TestPlan, video_payload
 from common.win import hires_timer
 hires_timer()
 quiet_handshake_errors()
@@ -21,7 +21,7 @@ game = Game()
 state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
          "e2e": 0.0, "tick": 0, "linked": False, "playing": False,
          "paused": False, "mode_override": None, "test": None,
-         "z_stats": {}, "x_stats": {}, "x_fps": 0.0, "y_fps": 0.0,
+         "z_stats": {}, "x_stats": {}, "x_video": {}, "x_fps": 0.0, "y_fps": 0.0,
          "reports": []}
 inp = {"keys": "", "seq": 0, "latch": False}
 zs = {}                # Z connection -> frame queue + capability slot
@@ -121,6 +121,15 @@ def send_stream():
               f"{'streaming' if on else 'paused (EDGE Y)'}")
 
 
+def send_x_control(payload):
+    """Send one control message to Cloud X; False when the link is down (WS2.3)."""
+    if up is None or up.fn is None:
+        return False
+    up.put(json.dumps(payload))
+    return True
+
+
+
 async def z_sender(ws, slot, lock):
     try:
         while True:
@@ -202,6 +211,21 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
             print(f"game over: score={m.get('score')}")
             if test_runner is not None:
                 test_runner.on_game_over()
+        elif m["t"] == "x_stats":
+            # WS2.3: 1 Hz encoder summary from Cloud X.
+            state["x_stats"] = {key: value for key, value in m.items()
+                                if key != "t"}
+        elif m["t"] == "video_ok":
+            state["x_video"] = {key: value for key, value in m.items()
+                                if key != "t"}
+            if test_runner is not None:
+                test_runner.on_video_ok(state["x_video"])
+            print(f"[{time.strftime('%X')}] X video applied: "
+                  f"{state['x_video'].get('size')} GOP "
+                  f"{state['x_video'].get('gop')}, "
+                  f"intra-refresh={state['x_video'].get('intra_refresh')}")
+        elif m["t"] == "stopped":
+            print(f"[{time.strftime('%X')}] X stopped by request")
 
 
 async def tick_loop():
@@ -322,6 +346,8 @@ class TestRunner:
         self.error = ""
         self.hold_actions = []
         self.reason = ""
+        self.video_requested = None      # WS2.3: presets sent to Cloud X
+        self.video_applied = None        # ... and what X confirmed
 
     # -- status ---------------------------------------------------------
     def _elapsed(self):
@@ -407,6 +433,19 @@ class TestRunner:
         set_delay(0)
         update_mode()
         send_stream()
+        # WS2.3: apply the preset and subscribe to X encoder stats. Both need
+        # the X link; without it the preset is recorded in the report only.
+        self.video_requested = plan.video_command()
+        self.video_applied = None
+        if state.get("linked"):
+            if self.video_requested is not None:
+                send_x_control(self.video_requested)
+                print(f"[{time.strftime('%X')}] test: X video preset "
+                      f"{plan.video_preset}")
+            send_x_control({"t": "stats", "on": True})
+        else:
+            print(f"[{time.strftime('%X')}] test: Cloud X not linked; "
+                  f"video preset {plan.video_preset} recorded only")
         payload = {"t": "test", "cmd": "start", "workload": plan.workload,
                    "seed": plan.seed, "pattern": plan.input_pattern,
                    "plan": plan.name}
@@ -546,6 +585,8 @@ class TestRunner:
             "y_fps": round(float(state.get("y_fps", 0.0)), 1),
             "z_fps": round(float(z_stats.get("fps", 0.0)), 1),
             "x_encode": x_stats.get("encode_p50"),
+            "x_encode_p95": x_stats.get("encode_p95"),
+            "x_kf": x_stats.get("keyframes_s"),
             "z_decode": round(float(z_stats.get("decode", 0.0)), 1),
             "tick": int(game_state.get("tick", 0)),
             "score": int(game_state.get("score", 0)),
@@ -599,6 +640,7 @@ class TestRunner:
         state["paused"] = False
         state["playing"] = False
         up.put(json.dumps({"t": "pause"}))
+        send_x_control({"t": "stats", "on": False})
         send_to_z(json.dumps({"t": "test", "cmd": "stop"}))
         self.write_report(reason)
         state["test"] = self.snapshot()
@@ -636,7 +678,10 @@ class TestRunner:
                            "recover_s": C.RECOVER_S},
             "y_version": sys.version.split()[0],
             "video_preset": self.plan.video_preset,
-            "video_runtime": "current (fixed until WS2.3)",
+            "video_runtime": ("applied (WS2.3)" if self.video_applied
+                              else "current (fixed)"),
+            "video_applied": self.video_applied,
+            "video_requested": self.video_requested,
             "paused_s": round(self.paused_total, 2),
             "game_config": getattr(game, "config", None),
             "mode_final": state.get("mode"),
@@ -659,6 +704,10 @@ class TestRunner:
         state["z_stats"] = dict(stats)
         if self.phase in ("starting", "warmup", "running", "paused"):
             state["test"] = self.snapshot()
+
+    def on_video_ok(self, applied):
+        """Cloud X confirmed a runtime video preset (WS2.3)."""
+        self.video_applied = dict(applied or {})
 
     def on_game_over(self):
         if self.phase in ("starting", "warmup", "running", "paused"):
@@ -798,6 +847,21 @@ async def dash_handler(ws):
                 elif cmd == "get_report":
                     report = report_mod.load(REPORT_DIR, m.get("id"))
                     await ws.send(json.dumps({"t": "report", "report": report}))
+                elif cmd == "x_video":
+                    # WS2.3: apply an A0/A1/A2/intra preset without restarting X.
+                    payload = video_payload(m.get("preset"))
+                    if payload is None:
+                        raise ValueError(f"no runtime video preset "
+                                         f"{m.get('preset')!r}; use A0/A1/A2/intra")
+                    if not send_x_control(payload):
+                        raise RuntimeError("Cloud X is not linked")
+                elif cmd == "x_stats":
+                    if not send_x_control({"t": "stats",
+                                           "on": bool(m.get("on", True))}):
+                        raise RuntimeError("Cloud X is not linked")
+                elif cmd == "x_stop":
+                    if not send_x_control({"t": "stop"}):
+                        raise RuntimeError("Cloud X is not linked")
                 elif cmd == "delay_ms":
                     set_delay(m.get("delay_ms", 0))
                 else:

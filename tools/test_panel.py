@@ -254,7 +254,7 @@ class PanelApp:
         field(3, 0, "Mode", "mode", MODES)
         field(3, 2, "Video preset", "video_preset", VIDEO_PRESETS)
         field(4, 0, "Input", "input_pattern", INPUT_PATTERNS)
-        ttk.Label(frame, text="preset is recorded now; applied to X in WS2.3",
+        ttk.Label(frame, text="Apply to X swaps the live encoder (WS2.3)",
                   foreground="#666").grid(row=4, column=2, columnspan=2,
                                           sticky="w")
 
@@ -270,6 +270,9 @@ class PanelApp:
         self.controls["preview"] = ttk.Button(buttons, text="Preview",
                                               command=self.on_preview)
         self.controls["preview"].pack(side="left", padx=4)
+        self.controls["apply_video"] = ttk.Button(
+            buttons, text="Apply video to X", command=self.on_apply_video)
+        self.controls["apply_video"].pack(side="left")
         files = [path.name for path in pm.plan_files(PLAN_DIR)]
         self.plan_picker = ttk.Combobox(buttons, textvariable=self.plan_file_var,
                                         values=files, width=22,
@@ -359,19 +362,22 @@ class PanelApp:
                   ("delay", "injected ms"), ("e2e", "input->display ms"),
                   ("rtt_zy", "RTT Z<->Y ms"), ("x_fps", "X fps"),
                   ("y_fps", "Y fps"), ("z_fps", "Z fps"),
-                  ("x_encode", "X encode ms"), ("z_decode", "Z decode ms"))
+                  ("x_encode", "X encode p50 ms"), ("x_encode_p95", "p95 ms"),
+                  ("x_kf", "X keyframes/s"), ("x_kb", "frame KB"),
+                  ("x_video", "X video"), ("z_decode", "Z decode ms"))
         for index, (key, title) in enumerate(titles):
             row, column = divmod(index, 2)
             ttk.Label(frame, text=title).grid(row=row, column=column * 2,
                                               sticky="w", padx=(0, 4), pady=1)
             var = tk.StringVar(value="-")
             self.metric_vars[key] = var
-            ttk.Label(frame, textvariable=var, width=9,
+            ttk.Label(frame, textvariable=var, width=14, anchor="w",
                       font=("Consolas", 9)).grid(row=row, column=column * 2 + 1,
                                                  sticky="w", padx=(0, 14),
                                                  pady=1)
-        ttk.Label(frame, text="X encode stats arrive with WS2.3",
-                  foreground="#666").grid(row=6, column=0, columnspan=4,
+        ttk.Label(frame, text="intra-refresh needs Z started with "
+                              "FYP_X_INTRA_REFRESH=1",
+                  foreground="#666").grid(row=8, column=0, columnspan=4,
                                           sticky="w", pady=(4, 0))
 
     def _build_reports_frame(self, parent):
@@ -489,6 +495,16 @@ class PanelApp:
         if plan is not None:
             self._send(pm.preview_payload(plan), "preview plan")
 
+    def on_apply_video(self):
+        """Apply the selected preset to Cloud X without starting a run (WS2.3)."""
+        preset = self.form_vars["video_preset"].get()
+        payload = pm.x_video_payload(preset)
+        if payload is None:
+            self.status_var.set("video preset 'current': X keeps its "
+                                "startup encoder")
+            return
+        self._send(payload, f"apply video {preset} to X")
+
     def _refresh_plan_views(self):
         self.event_tree.delete(*self.event_tree.get_children())
         for row in pm.event_rows(self.plan):
@@ -535,7 +551,7 @@ class PanelApp:
             widget = self.controls.get(key)
             if widget is not None:
                 widget.configure(state="normal" if state[key] else "disabled")
-        for key in ("apply", "preview", "remove_event", "launch_z"):
+        for key in ("apply", "preview", "remove_event", "launch_z", "apply_video"):
             widget = self.controls.get(key)
             if widget is not None:
                 widget.configure(state="normal" if state["edit"] else "disabled")

@@ -4,6 +4,7 @@ from websockets.asyncio.server import serve
 from common import config as C
 from common.net import lan_ip, quiet_handshake_errors
 from common.win import hires_timer
+from common.xstats import FrameStats
 hires_timer()
 quiet_handshake_errors()
 from game.simulation import Game
@@ -18,6 +19,52 @@ game_over_sent = False
 x_encoder = None
 log_f = log_w = None
 n_logged = 0
+stats = FrameStats(window_s=2.0)         # rolling encoder stats (WS2.3)
+
+
+async def apply_video(m):
+    """Rebuild the encoder for a runtime ``video`` command (WS2.3).
+
+    The codec is opened off the event loop because libx264 init can take tens
+    of milliseconds; the caller drops the queued frames and forces an IDR so
+    End Z resynchronises (a size change also needs that keyframe).
+    """
+    global x_encoder
+    if H264Encoder is None:
+        return {"t": "error", "command": "video",
+                "message": "PyAV is unavailable; X is streaming JPEG"}
+    try:
+        size = tuple(int(v) for v in (m.get("size") or C.X_SIZE))
+        gop = int(m.get("gop") or C.X_GOP)
+        bitrate = int(m.get("bitrate") or C.X_BITRATE)
+        intra = bool(m.get("intra_refresh", C.X_INTRA_REFRESH))
+        encoder = str(m.get("encoder") or C.X_ENCODER)
+    except (TypeError, ValueError) as exc:
+        return {"t": "error", "command": "video", "message": f"bad settings: {exc}"}
+
+    def build():
+        return H264Encoder(size, C.X_FPS, bitrate, gop, encoder=encoder,
+                           intra_refresh=intra)
+
+    try:
+        new = await asyncio.to_thread(build)
+    except Exception as exc:
+        print(f"[{time.strftime('%X')}] video: encoder rebuild failed ({exc!r})")
+        return {"t": "error", "command": "video",
+                "message": f"encoder rebuild failed: {exc}"}
+    old, x_encoder = x_encoder, new
+    if old is not None:
+        try:
+            old.close()
+        except Exception:
+            pass
+    print(f"[{time.strftime('%X')}] X video: {new.name} "
+          f"{size[0]}x{size[1]} @ {C.X_FPS} fps, {bitrate} bps, GOP {gop}, "
+          f"intra-refresh={'on' if intra else 'off'}")
+    return {"t": "video_ok", "encoder": new.name, "gop": gop,
+            "size": [size[0], size[1]], "bitrate": bitrate,
+            "intra_refresh": intra}
+
 
 
 def log_frame(tick, seq, codec, key, encode_ms, nbytes):
@@ -37,6 +84,7 @@ async def handler(ws):
     resync, need_at = True, time.monotonic()
     z_h264, force_key, streaming = False, True, True
     paused, playing = False, False
+    stats_on = False
     print(f"Y connected from {ws.remote_address}")
     lock = asyncio.Lock()
 
@@ -70,6 +118,15 @@ async def handler(ws):
 
     rd = asyncio.create_task(reader())
     sd = asyncio.create_task(sender())
+
+    async def stats_pump():
+        """Push a 1 Hz encoder summary while Y has the subscription on."""
+        while True:
+            await asyncio.sleep(1.0)
+            if stats_on and stats.mature():
+                await send(json.dumps({"t": "x_stats", **stats.snapshot()}))
+
+    stp = asyncio.create_task(stats_pump())
     try:
         while True:
             if not q:
@@ -116,6 +173,28 @@ async def handler(ws):
             elif t == "resume":
                 paused = False
                 print("game resumed")
+            elif t == "video":
+                # WS2.3: swap GOP/size/bitrate/intra-refresh without a restart.
+                reply = await apply_video(m)
+                if reply.get("t") == "video_ok":
+                    force_key = True            # Z needs an IDR after the swap
+                    out["queue"].clear()
+                    out["jpeg"] = None
+                    stats.reset()
+                await send(json.dumps(reply))
+            elif t == "stats":
+                stats_on = bool(m.get("on", True))
+                print(f"[{time.strftime('%X')}] X stats: "
+                      f"{'on' if stats_on else 'off'}")
+            elif t == "stop":
+                # Stop stepping/streaming but keep the process and socket.
+                playing = paused = False
+                streaming = False
+                out["queue"].clear()
+                out["jpeg"] = None
+                stats.reset()
+                await send(json.dumps({"t": "stopped"}))
+                print(f"[{time.strftime('%X')}] X stopped by request")
             elif t == "start":
                 try:
                     game = Game(m.get("workload", "light"),
@@ -183,15 +262,17 @@ async def handler(ws):
                             out["jpeg"] = b"X" + struct.pack("!II", game.tick, seq) + jpg
                             out["ev"].set()
                             nbytes, codec, is_key = len(jpg), "jpeg", True
-                        log_frame(game.tick, seq, codec, is_key,
-                                  (time.perf_counter() - t0) * 1000, nbytes)
+                        encode_ms = (time.perf_counter() - t0) * 1000
+                        log_frame(game.tick, seq, codec, is_key, encode_ms, nbytes)
+                        stats.add(encode_ms, nbytes, is_key)
                 elif m["tick"] > game.tick + 1 and (not resync or time.monotonic() - need_at > 2.0):
                     resync, need_at = True, time.monotonic()
                     await send(json.dumps({"t": "need_snap"}))
     finally:
         rd.cancel()
         sd.cancel()
-        await asyncio.gather(rd, sd, return_exceptions=True)
+        stp.cancel()
+        await asyncio.gather(rd, sd, stp, return_exceptions=True)
         print("Y disconnected")
 
 

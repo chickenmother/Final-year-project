@@ -39,7 +39,29 @@ VIDEO_SETTINGS = {
 }
 
 SUMMARY_KEYS = ("rtt", "delay", "e2e", "rtt_zy", "x_fps", "y_fps", "z_fps",
-                "x_encode", "z_decode")
+                "x_encode", "x_encode_p95", "x_kf", "z_decode")
+
+_PRESET_NAMES = {preset.lower(): preset for preset in VIDEO_PRESETS}
+
+
+def video_payload(preset):
+    """Cloud X runtime ``video`` command for a preset, or ``None``.
+
+    ``None`` means "leave X alone": ``current`` keeps whatever FYP_X_* values
+    X started with.  WS2.3 sends this to X; WS2.1/2.2 only recorded the name.
+    """
+    canonical = _PRESET_NAMES.get(str(preset or "").strip().lower())
+    settings = VIDEO_SETTINGS.get(canonical)
+    if settings is None:
+        return None
+    return {
+        "t": "video",
+        "gop": int(settings["gop"]),
+        "size": [int(settings["size"][0]), int(settings["size"][1])],
+        "bitrate": int(settings["bitrate"]),
+        "intra_refresh": bool(settings["intra_refresh"]),
+    }
+
 
 
 class PlanError(ValueError):
@@ -232,6 +254,10 @@ class TestPlan:
     def video_settings(self):
         settings = VIDEO_SETTINGS.get(self.video_preset)
         return dict(settings) if settings else None
+
+    def video_command(self):
+        """Runtime X ``video`` command for this plan; ``None`` for ``current``."""
+        return video_payload(self.video_preset)
 
     def segments(self):
         """Return non-overlapping display segments for the timeline UI."""

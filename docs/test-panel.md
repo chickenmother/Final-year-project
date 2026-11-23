@@ -1,8 +1,9 @@
 # Test Control Panel
 
-Status: **WS2.1 implemented** (`1c20dce`) and **WS2.2 implemented**
-(`tools/test_panel.py`). WS2.3 adds runtime X video switching. This document is
-the protocol/report reference; the README has the short version.
+Status: **WS2.1 implemented** (`1c20dce`), **WS2.2 implemented**
+(`tools/test_panel.py`) and **WS2.3 implemented** (X runtime `video`/`stats`/`stop`).
+This document is the protocol/report reference; the README has the short
+version.
 
 ## Purpose
 
@@ -24,8 +25,9 @@ Tk panel (WS2.2) ──WebSocket──► Middle Y (TestRunner)
   between Z and X, owns the `DelayLine` and has the dashboard socket.
 - **Z** runs with `FYP_TEST=1`: it opens its normal pygame window, connects to
   Y, sends `hello`, and waits for test commands instead of showing the menu.
-- **X** is started normally. WS2.1 treats its encoder settings as fixed by
-  the `FYP_X_*` environment; WS2.3 can change them at runtime.
+- **X** is started normally and listens for `video`/`stats`/`stop` from Y, so its
+  encoder settings can change without a restart (WS2.3); the `FYP_X_*` values
+  are only the startup defaults.
 
 ## Test plans
 
@@ -97,6 +99,9 @@ Panel → Y:
 | `set_plan` | `{plan: {...}}` | validate/preview without starting |
 | `list_reports` | — | reply `{"t":"reports","reports":[...]}` |
 | `get_report` | `{id}` | reply `{"t":"report","report":{...}}` |
+| `x_video` | `{preset}` | WS2.3: `A0`/`A1`/`A2`/`intra` → forward `video` to X |
+| `x_stats` | `{on}` | WS2.3: subscribe/unsubscribe X encoder stats |
+| `x_stop` | — | WS2.3: stop X stepping/streaming (process stays up) |
 | `delay_ms` | number | legacy manual slider |
 
 Y → Z (inside the normal data socket, on a control queue ahead of frames):
@@ -111,7 +116,23 @@ Y → Z (inside the normal data socket, on a control queue ahead of frames):
 ```
 
 Y → X uses the existing `start`/`pause`/`resume`; the X↔Y `DelayLine` carries
-the timeline delay events. The Y state (`state["test"]`) is pushed at 5 Hz:
+the timeline delay events. WS2.3 adds the runtime control channel:
+
+```json
+{"t":"video","gop":120,"size":[960,540],"bitrate":4000000,"intra_refresh":false}
+{"t":"stats","on":true}
+{"t":"stop"}
+```
+
+X answers `{"t":"video_ok","encoder":"libx264","gop":120,"size":[960,540],
+"bitrate":4000000,"intra_refresh":false}` (or `{"t":"error","command":"video",
+"message":"..."}` while keeping the previous encoder), pushes
+`{"t":"x_stats","fps":60.0,"encode_p50":5.0,"encode_p95":5.6,"keyframes_s":0.5,
+"frame_kb":4.3,"frames":120}` at 1 Hz while `stats` is on, and replies
+`{"t":"stopped"}`. Y copies `x_stats` into `state["x_stats"]`, `video_ok` into
+`state["x_video"]`, and both into the report samples/environment.
+
+The Y state (`state["test"]`) is pushed at 5 Hz:
 
 ```json
 {"state":"running","name":"WS1.3-A1 delay sweep","warmup_s":5,"duration_s":60,
@@ -135,12 +156,12 @@ the timeline delay events. The Y state (`state["test"]`) is pushed at 5 Hz:
 Y writes `logs/reports/<id>.json` and `.csv`:
 
 - **meta** — id, date/time, start/end, duration, plan, environment
-  (thresholds, game config, Y version, video preset/runtime, paused total).
+  (thresholds, game config, Y version, video preset/runtime/applied, paused total).
 - **events** — applied timeline events with elapsed/wall times.
 - **samples** — 5 Hz: `t`, mode, RTT, injected delay, e2e, Z↔Y RTT, X/Y/Z FPS,
-  X encode (WS2.3), Z decode, tick/score/HP, paused flag.
+  `x_encode`/`x_encode_p95`/`x_kf` (WS2.3), Z decode, tick/score/HP, paused flag.
 - **summary** — `n`, mean, p50, p90, p99, max for RTT, delay, e2e, X/Y/Z FPS,
-  encode/decode; paused samples excluded.
+  X encode p50/p95, X keyframes/s, decode; paused samples excluded.
 
 The raw per-frame logs remain in `logs/log_x.csv`, `logs/log_y.csv`,
 `logs/log_z.csv`. Historical root logs are archived under `logs/raw/`.
@@ -195,22 +216,35 @@ Notes:
   thread through a queue, so no Tk call happens off the main thread.
 - The reader reconnects every 2 s while the panel is open; **Disconnect** stops
   it.
-- `video_preset` is recorded, not applied, until WS2.3; the placement pattern
-  stays unavailable until the WS3 router.
+- `video_preset` now applies at `test_start` (WS2.3) and can also be pushed with
+  **Apply video to X** without starting a run; the placement pattern stays
+  unavailable until the WS3 router.
 
-## WS2.3 — X runtime video (planned)
+## WS2.3 — X runtime video/stats/stop
 
-After the WS1.1 captures are archived, add to `x_server.py`:
+Implemented in `x_server.py` (+ `common/xstats.py` for the rolling numbers):
 
-- `{"t":"video","gop":...,"size":[...],"bitrate":...,"intra_refresh":...}`:
-  rebuild the H.264 encoder, force an IDR; the Z decoder handles the new size.
-- `{"t":"stats",...}` every 1 s: fps, encode p50/p95, keyframes, bytes.
-- `{"t":"stop"}`: stop stepping/streaming without killing the process.
+- `{"t":"video",...}`: rebuilds the H.264 encoder in a worker thread
+  (`asyncio.to_thread`), drops queued frames and forces an IDR. A size change
+  (A2) is safe mid-stream because End Z resets its decoder on that keyframe.
+  A failed rebuild keeps the previous encoder and returns `error`.
+- `{"t":"stats","on":true}`: `x_stats` once per second with `fps`,
+  `encode_p50`, `encode_p95`, `keyframes_s`, `frame_kb`, `frames`. Snapshots
+  younger than 0.5 s are skipped so a forced IDR right after a swap cannot
+  read as 4 keyframes/s.
+- `{"t":"stop"}`: stops stepping/streaming but keeps the process and the socket.
 
-The panel’s A0/A1/A2/intra presets then apply without restarting X. Until then
-the X encoder is whatever `FYP_X_GOP`, `FYP_X_SIZE`, `FYP_X_BITRATE` and
-`FYP_X_INTRA_REFRESH` were set to at X startup; the report records
-`video_runtime: current`.
+Y applies `plan.video_command()` at `test_start`, subscribes to stats, records
+`environment.video_runtime`/`video_applied`, and samples `x_encode`,
+`x_encode_p95` and `x_kf`. The panel shows X fps, encode p50/p95, keyframes/s,
+frame KB and the confirmed preset.
+
+Caveats:
+
+- `intra` has no periodic IDR: End Z must already run with
+  `FYP_X_INTRA_REFRESH=1`.
+- The preset is applied at the start of a run; a mid-run switch is deliberate
+  (panel button / `x_video`) and intended for WS1-style keyframe experiments.
 
 ## Environment
 
@@ -218,7 +252,7 @@ the X encoder is whatever `FYP_X_GOP`, `FYP_X_SIZE`, `FYP_X_BITRATE` and
 |---|---|---|
 | `FYP_TEST=1` | Z | unattended test mode; no menu; waits for Y commands |
 | `FYP_GAME_CONFIG` | Z | alternate game config (the immortal test config) |
-| `FYP_X_GOP`, `FYP_X_SIZE`, `FYP_X_BITRATE` | X | encoder preset at startup (fixed until WS2.3) |
+| `FYP_X_GOP`, `FYP_X_SIZE`, `FYP_X_BITRATE` | X | encoder defaults at startup (WS2.3 can change them at runtime) |
 | `FYP_X_INTRA_REFRESH=1` | X and Z | intra-refresh; must match on both |
 | `FYP_X_STREAM_EVERY`, `FYP_Y_STREAM_EVERY` | sender and Z | frame stride; must match |
 | `FYP_HIGH_MS`, `FYP_LOW_MS`, `FYP_BAD_COUNT`, `FYP_RECOVER_S` | Y | RTT mode-switch thresholds |
@@ -235,7 +269,9 @@ The test config used by the unattended runs should keep the player alive:
 |---|---|---|
 | `test_start` replies “no End Z is connected” | Z not in test mode / not connected | start Z with `FYP_TEST=1`; check Y’s “Z connected” |
 | Test pauses immediately / no frames | duplicate Y or Z processes sharing ports | kill all but one Y and one Z; check `Get-NetTCPConnection -LocalPort 8000,8002` |
-| Report has no X encode | WS2.3 X stats not implemented yet | expected in WS2.1/2.2; use `log_x.csv` |
+| Report has no X encode | X not linked, or `stats` never subscribed | WS2.3: the panel subscribes on start; check `x_stats` in Y's state and `X stats: on` in X's log |
+| `x_video` replies “Cloud X is not linked” | Y has no X connection (mode Y) | start/reconnect X; presets then apply without restarting X |
+| `video_ok` never arrives | encoder rebuild failed | check X's log for `video: encoder rebuild failed`; the previous encoder keeps streaming |
 | Pause does not resume | `pause` event with `hold_s`, or panel still paused | resume from the panel; verify `state["test"]["state"]` |
 | Delay does not appear | event at/after `duration_s`, or next delay event resets it | check `events` and `state["delay_ms"]` |
 | Z freezes after an intra-refresh gap | Z env missing `FYP_X_INTRA_REFRESH=1` | start X and Z with the same value |
@@ -245,8 +281,11 @@ The test config used by the unattended runs should keep the player alive:
 
 - `common/testplan.py` — plan/event validation, presets, timeline, summary math.
 - `common/report.py` — report JSON/CSV, history, safe load.
+- `common/xstats.py` — WS2.3 rolling encoder stats (fps, encode p50/p95, keyframes/s).
+- `x_server.py` — game engine, H.264 renderer and the WS2.3 `video`/`stats`/`stop`
+  handlers.
 - `y_gateway.py` — `TestRunner`, dashboard commands, delay/mode timeline,
-  Z control queue, X/Y FPS windows, report finalisation.
+  Z control queue, X/Y FPS windows, report finalisation, X preset forwarding.
 - `z_client.py` — `FYP_TEST=1`, test commands, input patterns, overlay, stats.
 - `tools/test_cli.py` — WS2.1 driver.
 - `tools/test_panel.py` — WS2.2 Tk panel (Tk + websocket shell).
@@ -254,5 +293,6 @@ The test config used by the unattended runs should keep the player alive:
 - `tools/plans/ws2_1_smoke.json` — example plan.
 - `tests/test_testplan.py`, `tests/test_report.py` — unit tests.
 - `tests/test_panel_model.py`, `tests/test_panel_smoke.py` — WS2.2 tests.
+- `tests/test_xstats.py` — WS2.3 encoder-stats tests.
 
 

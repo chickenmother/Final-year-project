@@ -16,6 +16,7 @@ from common.testplan import (
     EVENT_KINDS,
     PlanError,
     TestPlan,
+    video_payload,
 )
 
 DEFAULT_Y_URI = "ws://127.0.0.1:8002"
@@ -209,9 +210,10 @@ def progress(state):
 
 
 def metrics(state):
-    """Formatted live metrics (Y state + Z stats) for the panel labels."""
+    """Formatted live metrics (Y state + X/Z stats) for the panel labels."""
     state = state or {}
     z_stats = state.get("z_stats") or {}
+    x_stats = state.get("x_stats") or {}
     return {
         "mode": state.get("mode") or "-",
         "linked": "yes" if state.get("linked") else "no",
@@ -223,9 +225,24 @@ def metrics(state):
         "x_fps": fmt(state.get("x_fps"), 1),
         "y_fps": fmt(state.get("y_fps"), 1),
         "z_fps": fmt(z_stats.get("fps"), 1),
-        "x_encode": fmt(state.get("x_encode"), 1),
+        "x_encode": fmt(x_stats.get("encode_p50"), 1),
+        "x_encode_p95": fmt(x_stats.get("encode_p95"), 1),
+        "x_kf": fmt(x_stats.get("keyframes_s"), 2),
+        "x_kb": fmt(x_stats.get("frame_kb"), 1),
+        "x_video": video_label(state.get("x_video")),
         "z_decode": fmt(z_stats.get("decode"), 1),
     }
+
+
+def video_label(applied):
+    """Compact description of the preset Cloud X confirmed (WS2.3)."""
+    if not applied:
+        return "-"
+    size = applied.get("size") or []
+    dims = f"{size[0]}x{size[1]}" if len(size) == 2 else "?"
+    text = f"{dims} GOP {applied.get('gop')}"
+    return text + (" intra" if applied.get("intra_refresh") else "")
+
 
 
 def buttons(current):
@@ -267,6 +284,25 @@ def report_payload(report_id):
 
 def list_payload():
     return {"cmd": "list_reports"}
+
+
+def x_video_payload(preset):
+    """Dashboard command that applies a preset to X at runtime (WS2.3).
+
+    ``None`` for ``current``: X keeps the encoder it started with.
+    """
+    if video_payload(preset) is None:
+        return None
+    return {"cmd": "x_video", "preset": preset}
+
+
+def x_stats_payload(on=True):
+    return {"cmd": "x_stats", "on": bool(on)}
+
+
+def x_stop_payload():
+    return {"cmd": "x_stop"}
+
 
 
 def parse_message(raw):
