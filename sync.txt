@@ -1,11 +1,11 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-23 15:37 +09:00   (from Y / home PC)
+Last updated : 2026-11-23 16:25 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
-Branch : feature/Cloud_X
-HEAD   : 0df8de5  "Sync: record WS naming commit/push"
-         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 complete)
+Branch : feature/ws2.2-test-panel   (dev branched off feature/Cloud_X)
+HEAD   : 7a9b0fb  "WS2.2: Tk control panel (plan editor, run controls, metrics, reports, Z launch)"
+         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.2 complete)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
@@ -837,6 +837,12 @@ HEAD   : 0df8de5  "Sync: record WS naming commit/push"
     commands.md, context.md, roadmap.md (WS2.2 done; WS2.3 next).
   - Validation: 55 tests, selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
   - Next: WS2.3 X runtime video/stats/stop; then WS3 task router/placement.
+
+[2026-11-23 16:25 +09:00 | from Y / home PC — WS2.2 committed/pushed]
+  - Commit 7a9b0fb pushed to origin/feature/ws2.2-test-panel (10 files, +1643/-48).
+  - This sync header/entry is a separate follow-up commit; dev then fast-forwards to it.
+  - Lab X remains at cda0f52; no lab X pull; no behaviour change for X/Y outside the panel.
+  - Next: WS2.3 (X video/stats/stop), then WS3.1 task router.
 
 END OF SYNC
 
