@@ -9,7 +9,7 @@
 | **Institution** | Kyushu Sangyo University, Department of Information Science |
 | **Programme** | Final Year Project |
 | **Academic Year** | 2025/2026 |
-| **Status** | Working prototype — Python 3.13.9 on Windows; Phase 1 test runner/CLI shipped; task-level placement (patterns/router/L) planned; Phase 2 Tk panel next |
+| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 test runner/CLI shipped; WS1.2 fix in the lab X; WS1.3 post-fix smoke next; WS2.2 Tk panel next; task-level placement (WS3) planned |
 
 A final year project modelling a **3-tier vertical cloud gaming architecture** — **End Node (Z) → Middle Edge Gateway (Y) → Cloud Server (X)** — under simulated network latency degradation.
 
@@ -104,10 +104,10 @@ Router / protocol (planned):
 |---|---|---|
 | **Placement pattern** | All Cloud / Offload A/B / All Edge / Pinned L | Planned (router/table) |
 | **Legacy mode** | `auto` / `cloud` / `edge` | Implemented (whole-pipeline fallback) |
-| **Video preset** | A0 / A1 / A2 / intra / current | Recorded; runtime in Phase 3 |
+| **Video preset** | A0 / A1 / A2 / intra / current | Recorded; runtime in WS2.3 |
 | Workload | light / medium / heavy | Implemented |
-| Input pattern | idle / strafe / circle / figure8 / shoot | Phase 1 |
-| Delay timeline | delay / mode / pause | Phase 1 |
+| Input pattern | idle / strafe / circle / figure8 / shoot | WS2.1 |
+| Delay timeline | delay / mode / pause | WS2.1 |
 
 The test plan currently has `mode` (legacy) and `video_preset` (video); the planned placement axis will add `placement`/`pattern` alongside them. The test panel's "pattern" selector is therefore the placement pattern, not A0/A1/A2.
 
@@ -115,7 +115,7 @@ The test plan currently has `mode` (legacy) and `video_preset` (video); the plan
 
 - **Implemented:** whole-pipeline baseline; A–E game core; U menu/overlay/config (partial); H.264/JPEG; Y fallback; test runner/reports; Z test mode.
 - **Partial:** B (no pathfinding); U (leaderboard placeholder); no L.
-- **Planned:** Y task router/placement table; local A/B copies; L SQLite on X; leaderboard view; per-task metrics; test-panel placement axis; Phase 2 Tk panel; Phase 3 X runtime video.
+- **Planned:** Y task router/placement table; local A/B copies; L SQLite on X; leaderboard view; per-task metrics; test-panel placement axis; WS2.2 Tk panel; WS2.3 X runtime video.
 
 
 
@@ -160,16 +160,20 @@ FYP/
 ├── web/
 │   └── dashboard.html           # live mode/RTT/lag/game state + latency slider
 ├── tools/
-│   ├── test_cli.py              # Phase 1 test driver
+│   ├── test_cli.py              # WS2.1 test driver
 │   ├── autoplay_z.ps1           # immortal config + unattended Z launcher
 │   └── plans/
-│       └── phase1_smoke.json
+│       ├── ws1_1_a0.json        # WS1.1 baseline (preset A0)
+│       ├── ws1_1_a1.json        # WS1.1 baseline (preset A1)
+│       ├── ws1_1_a2.json        # WS1.1 baseline (preset A2)
+│       ├── ws1_3_a1.json        # WS1.3 post-fix (preset A1)
+│       └── ws2_1_smoke.json     # WS2.1 runner smoke
 ├── tests/
 │   ├── test_game_core.py
 │   ├── test_testplan.py
 │   └── test_report.py
 ├── docs/
-│   ├── test-panel.md            # test protocol, reports, Phase 2/3 plan (guide)
+│   ├── test-panel.md            # test protocol, reports, WS2.2/WS2.3 plan (guide)
 │   ├── notes/
 │   │   ├── .gitkeep
 │   │   └── latency-notes.md     # Wi-Fi/DERP findings and threshold calibration
@@ -415,10 +419,10 @@ Because X asks for a snapshot on every connection, the game state continues inst
 
 ## Test Control Panel
 
-### Phase 1 — implemented
+### WS2.1 — implemented
 
 Y accepts a test protocol on the dashboard WebSocket (8002). A plan selects the workload, legacy
-mode (`auto`/`cloud`/`edge`), X video preset (recorded now; applied at runtime in Phase 3), Z input
+mode (`auto`/`cloud`/`edge`), X video preset (recorded now; applied at runtime in WS2.3), Z input
 pattern (`idle`/`strafe`/`circle`/`figure8`/`shoot`), warm-up/measurement duration and a timeline
 of events (`delay`, `mode`, `pause`, `pattern`). The **placement pattern** (All Cloud / Offload
 A/B / All Edge / Pinned L) is a separate planned axis for the task router; until it exists,
@@ -431,27 +435,27 @@ $env:FYP_TEST = "1"
 
 # Drive a plan through Y:
 .\venv\Scripts\python.exe tools\test_cli.py `
-    --y ws://<Y_DASHBOARD_ADDRESS>:8002 --plan tools\plans\phase1_smoke.json
+    --y ws://<Y_DASHBOARD_ADDRESS>:8002 --plan tools\plans\ws2_1_smoke.json
 ```
 
 For unattended runs the match must be unable to end. The test config keeps the player alive
 (`player.max_hp=1000`, zero obstacle/bot damage, `light` workload); point Z at it with
-`FYP_GAME_CONFIG` (or let `tools\autoplay_z.ps1` generate it under `%TEMP%\fyp_phaseA`).
+`FYP_GAME_CONFIG` (or let `tools\autoplay_z.ps1` generate it under `%TEMP%\fyp_ws1`).
 
 Y writes `logs/reports/<id>.json` and `.csv`: date/time, plan, environment, applied events,
 5 Hz samples (mode, RTT, injected delay, e2e, X/Y/Z FPS, decode/encode when available) and
 p50/p90/p99/max summaries. Paused samples are excluded from the summaries. The CLI prints the
 summary when the run finishes; the raw per-frame logs remain in `logs/log_x/y/z.csv`.
 
-Phase 1 command reference and the report schema: [docs/test-panel.md](docs/test-panel.md).
+WS2.1 command reference and the report schema: [docs/test-panel.md](docs/test-panel.md).
 
-### Phase 2 / Phase 3
+### WS2.2 / WS2.3
 
-- **Phase 2** — `tools/test_panel.py` (Tk 8.6, stdlib): plan/preset editor, workload/mode/input/
+- **WS2.2** — `tools/test_panel.py` (Tk 8.6, stdlib): plan/preset editor, workload/mode/input/
   video selectors, placement-pattern selector (once the task router lands), timeline, progress,
   Start/Pause/Resume/Terminate, live metrics, report history, and launch/focus of the Z pygame
   window. The browser dashboard stays available as a remote monitor.
-- **Phase 3** — X runtime `video` command (GOP/resolution/bitrate/intra-refresh with encoder
+- **WS2.3** — X runtime `video` command (GOP/resolution/bitrate/intra-refresh with encoder
   rebuild + IDR), X `stats` (fps/encode/keyframes) and X `stop`. The panel’s A0/A1/A2/intra
   presets then apply without restarting X. Until then X uses its startup `FYP_X_*` values and
   the report records `video_runtime: current`.
@@ -624,7 +628,7 @@ and report writing.
 
 ```powershell
 .\venv\Scripts\python.exe tools\test_cli.py `
-    --y ws://127.0.0.1:8002 --plan tools\plans\phase1_smoke.json
+    --y ws://127.0.0.1:8002 --plan tools\plans\ws2_1_smoke.json
 ```
 
 ### X capacity check
@@ -661,7 +665,7 @@ entirely (max frame ~20–50 KB).
 | Many X↔Y switches with a ~30 ms baseline | Default 80/50 thresholds are too tight for a WAN | Calibrate `FYP_HIGH_MS` ≈ p50 + 35, `FYP_LOW_MS` ≈ p50 + 15, raise `FYP_BAD_COUNT` |
 | `test_start` replies “no End Z is connected” | Z not in test mode / not connected | Start Z with `FYP_TEST=1`; check Y’s `Z connected` |
 | Test pauses immediately / no frames | Duplicate Y/Z processes or a paused runner | Kill duplicates; check `state["test"]["state"]`; resume from the panel |
-| Report has no X encode | Phase 3 X `stats` not implemented yet | Expected in Phase 1/2; use `logs/log_x.csv` |
+| Report has no X encode | WS2.3 X `stats` not implemented yet | Expected in WS2.1/2.2; use `logs/log_x.csv` |
 | Report `duration_s` > plan duration | Wall time includes warm-up and pauses | Compare `plan.duration_s` with sample `t` |
 
 Keep the machines awake for the demo (`powercfg /change standby-timeout-ac 0`) and, if you merge
@@ -684,26 +688,28 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
   the cloud leg the edge tier is meant to hide; the Z↔Y hop is untouched.
 - **One game, one input.** Multiple Z clients can watch, but they share a single input state and
   there is one game instance per Y.
-- **Fixed encoding settings until Phase 3.** X and Y use H.264 at a fixed target bitrate/GOP with
+- **Fixed encoding settings until WS2.3.** X and Y use H.264 at a fixed target bitrate/GOP with
   JPEG fallback; there is no adaptive bitrate or congestion control. X uses a VBV buffer (0.5 s),
   no scene-cut IDRs, and optionally intra-refresh. A dropped frame is repaired by the next
-  keyframe, or sooner when Z requests an IDR. The Phase 3 panel will switch GOP/resolution/
+  keyframe, or sooner when Z requests an IDR. The WS2.3 panel will switch GOP/resolution/
   intra-refresh at runtime.
 - **Task-level placement not implemented.** The current X/Y behaviour is the whole-pipeline
   baseline; the task router, placement table, local A/B copies and pinned L are planned. `mode`
   is the legacy fallback; the test panel’s placement-pattern axis is future work.
 - **Leaderboard / U partial.** The menu, overlays and config editor exist; the leaderboard display
   is a placeholder and L (SQLite on X) is not implemented.
-- **Test panel UI.** Phase 1 is the protocol/CLI; the Tk panel is Phase 2, so progress and report
+- **Test panel UI.** WS2.1 is the protocol/CLI; the Tk panel is WS2.2, so progress and report
   access are currently terminal-based.
-- **Phase A archive.** A0/A1/A2 (GOP30 vs GOP120 vs 540p on the old X) are only reproducible with
-  the old `4f189b9` code; the lab X stays pinned until that decision is made.
+- **WS1.1 archive (historical).** A0/A1/A2 (GOP30 vs GOP120 vs 540p on the old X) are only reproducible with
+  the old `4f189b9` code. The current lab X is at `cda0f52` (WS1.2); WS1.3 post-fix verification is pending.
+  The `logs/raw/phaseA_*` folder names are historical; `docs/References/roadmap.md` maps them.
 
 ---
 
 ## Documentation
 
-- [docs/test-panel.md](docs/test-panel.md) — test protocol, plan/report schema, Phase 2/3 plan.
+- [docs/test-panel.md](docs/test-panel.md) — test protocol, plan/report schema, WS2.2/WS2.3 plan.
+- [docs/References/roadmap.md](docs/References/roadmap.md) — workstreams, schedule, current progress and next step.
 - [docs/notes/latency-notes.md](docs/notes/latency-notes.md) — Wi-Fi/client-isolation/DERP findings and threshold calibration.
 - [docs/References/context.md](docs/References/context.md) — topology, machines, current status.
 - [docs/References/commands.md](docs/References/commands.md) — setup/run/test commands.

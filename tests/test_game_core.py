@@ -1,4 +1,4 @@
-"""Milestone 1 tests for the task-oriented game core."""
+"""WS0.1 tests for the task-oriented game core (originally Milestone 1)."""
 import json
 import tempfile
 import unittest

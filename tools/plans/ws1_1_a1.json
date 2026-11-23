@@ -1,11 +1,11 @@
 {
-  "name": "Phase A A0 (GOP30, 720p)",
+  "name": "WS1.1-A1 baseline (GOP120, 720p)",
   "warmup_s": 5,
   "duration_s": 60,
   "seed": 12345,
   "workload": "light",
   "mode": "auto",
-  "video_preset": "A0",
+  "video_preset": "A1",
   "input_pattern": "strafe",
   "events": []
 }

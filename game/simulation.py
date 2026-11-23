@@ -1,4 +1,4 @@
-"""Task-oriented game simulation (Milestone 1).
+"""Task-oriented game simulation (WS0.1; originally Milestone 1).
 
 This is a new, deterministic core. The legacy ``common/game.py`` remains the
 default so the existing simulator and self-test keep working; this core can be

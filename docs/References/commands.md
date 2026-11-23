@@ -8,7 +8,8 @@ py -3.13 -m venv venv
 .\run_local.cmd
 .\venv\Scripts\python.exe selftest.py
 .\venv\Scripts\python.exe -m unittest discover -s tests -v
-.\venv\Scripts\python.exe tools\test_cli.py --y ws://127.0.0.1:8002 --plan tools\plans\phase1_smoke.json
+.\venv\Scripts\python.exe tools\test_cli.py --y ws://127.0.0.1:8002 --plan tools\plans\ws2_1_smoke.json
+.\venv\Scripts\python.exe tools\test_cli.py --y ws://127.0.0.1:8002 --plan tools\plans\ws1_3_a1.json
 ```
 
 - Ports: X 8001, Y 8000, Y dashboard/test 8002.

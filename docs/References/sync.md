@@ -30,7 +30,7 @@
     - Pattern axes: placement pattern vs legacy mode vs video preset vs
       workload / input / delay timeline.
     - Implementation status: A-E + U partial; L, router, placement table and
-      local A/B copies planned; Phase 2 Tk panel; Phase 3 X runtime video.
+      local A/B copies planned; WS2.2 Tk panel; WS2.3 X runtime video.
 
   docs/test-panel.md now marks `mode` as legacy and `placement` as planned.
-  No code changes. Lab X remains pinned to 4f189b9; do NOT pull on X.
+  No code changes. Lab X is at cda0f52 (WS1.2); do NOT pull on X.

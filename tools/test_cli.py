@@ -3,7 +3,7 @@
 Examples
 --------
     python tools/test_cli.py --y ws://127.0.0.1:8002
-    python tools/test_cli.py --y ws://127.0.0.1:8002 --plan tools/plans/phase1_smoke.json
+    python tools/test_cli.py --y ws://127.0.0.1:8002 --plan tools/plans/ws2_1_smoke.json
 
 The CLI sends a panel hello, starts the plan, prints the test progress and live
 metrics, and stops the test on Ctrl+C.  Reports are written by Y to

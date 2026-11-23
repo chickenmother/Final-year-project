@@ -4,8 +4,8 @@
     scripted WASD/SPACE input so cloud-X capture runs never need a human.
 
 .DESCRIPTION
-    Phase A/B measurements need 60-70 s of uninterrupted gameplay on X. This
-    script writes an isolated config to %TEMP%\fyp_phaseA\game_config.json
+    WS1.1/WS1.3 measurements need 60-70 s of uninterrupted gameplay on X. This
+    script writes an isolated config to %TEMP%\fyp_ws1\game_config.json
     (player max_hp 1000, obstacle/bot damage 0, light workload) and passes it to
     Z through FYP_GAME_CONFIG, so the repository game_config.json is untouched.
 
@@ -22,7 +22,7 @@
 
 .PARAMETER Workload
     Gameplay workload passed to Z (default light). Keep it identical for every
-    A0/A1/A2 run so the keyframe comparison stays valid.
+    preset A0/A1/A2 run so the keyframe comparison stays valid.
 
 .PARAMETER YAddress
     Middle Y address (default 127.0.0.1 for the home tier).
@@ -37,7 +37,7 @@
     powershell -ExecutionPolicy Bypass -File .\tools\autoplay_z.ps1 -Minutes 20
 
 .NOTES
-    Run this after the current manual A0 finishes (or discard that run): A0, A1
+    Run this after the current manual A0 preset run (or discard that run): presets A0, A1
     and A2 must share this config and this Z build to be comparable. Stop the
     autoplay with Ctrl+C before touching the dashboard. Z is left running when
     the script exits.
@@ -55,7 +55,7 @@ $ErrorActionPreference = 'Stop'
 
 $python = Join-Path $Root 'venv\Scripts\python.exe'
 if (-not (Test-Path $python)) { throw "Python not found at $python; pass -Root or create venv." }
-$temp = Join-Path $env:TEMP 'fyp_phaseA'
+$temp = Join-Path $env:TEMP 'fyp_ws1'
 New-Item -ItemType Directory -Force $temp | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $temp 'logs') | Out-Null
 $cfgPath = Join-Path $temp 'game_config.json'

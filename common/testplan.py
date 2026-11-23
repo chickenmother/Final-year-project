@@ -25,7 +25,7 @@ MAX_HOLD_S = 600.0
 
 MODE_OVERRIDE = {"auto": None, "cloud": "X", "edge": "Y"}
 
-# Runtime X switching lands in Phase 3; the values are still recorded in the
+# Runtime X switching lands in WS2.3; the values are still recorded in the
 # plan/report so a capture identifies which preset was intended.
 VIDEO_SETTINGS = {
     "A0": {"gop": 30, "size": (1280, 720), "bitrate": 4_000_000,

@@ -18,6 +18,6 @@ Only one Y and one Z at a time. Placement is not fixed; I test combinations.
 
 ## Current status
 
-- Phase 1 test runner/CLI shipped; Phase A A0/A1/A2 archived under `logs/raw`.
-- Lab X pulled to `cda0f52`; `x_server` not currently listening.
-- Next: Phase B smoke, Phase 2 Tk panel, Phase 3 X runtime video, task router/placement (A–U, L).
+- WS2.1 test runner/CLI shipped; WS1.1 (video presets A0/A1/A2) archived under `logs/raw`.
+- Lab X pulled to `cda0f52` (WS1.2); `x_server` not currently listening. Home Y is running (PID 3764; 8000/8002); no local X on 8001.
+- Next: WS1.3 post-fix verification, WS2.2 Tk panel, WS2.3 X runtime video, WS3 task router/placement. Roadmap/schedule: `docs/References/roadmap.md`.

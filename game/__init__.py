@@ -1,4 +1,4 @@
-"""Task-oriented game core (Milestone 1).
+"""Task-oriented game core (WS0.1; originally Milestone 1).
 
 The legacy deterministic game remains in ``common/game.py``. This package is
 the new core used by the task-placement experiments.

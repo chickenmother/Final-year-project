@@ -636,7 +636,7 @@ class TestRunner:
                            "recover_s": C.RECOVER_S},
             "y_version": sys.version.split()[0],
             "video_preset": self.plan.video_preset,
-            "video_runtime": "current (Phase 1)",
+            "video_runtime": "current (fixed until WS2.3)",
             "paused_s": round(self.paused_total, 2),
             "game_config": getattr(game, "config", None),
             "mode_final": state.get("mode"),

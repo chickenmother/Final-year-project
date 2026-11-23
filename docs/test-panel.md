@@ -1,7 +1,7 @@
 # Test Control Panel
 
-Status: **Phase 1 implemented** (commit `1c20dce`). Phase 2 is the Tk panel;
-Phase 3 adds runtime X video switching. This document is the protocol/report
+Status: **WS2.1 implemented** (commit `1c20dce`). WS2.2 is the Tk panel;
+WS2.3 adds runtime X video switching. This document is the protocol/report
 reference; the README has the short version.
 
 ## Purpose
@@ -14,9 +14,9 @@ injected delay, FPS and input→display latency.
 ## Roles
 
 ```
-Tk panel (Phase 2) ──WebSocket──► Middle Y (TestRunner)
+Tk panel (WS2.2) ──WebSocket──► Middle Y (TestRunner)
                                       │  timeline, samples, report
-                                      ├──► Cloud X (start/pause/resume/stop; Phase 3: video/stats)
+                                      ├──► Cloud X (start/pause/resume/stop; WS2.3: video/stats)
                                       └──► End Z test mode (input patterns, overlay, FPS/decode stats)
 ```
 
@@ -24,17 +24,17 @@ Tk panel (Phase 2) ──WebSocket──► Middle Y (TestRunner)
   between Z and X, owns the `DelayLine` and has the dashboard socket.
 - **Z** runs with `FYP_TEST=1`: it opens its normal pygame window, connects to
   Y, sends `hello`, and waits for test commands instead of showing the menu.
-- **X** is started normally. Phase 1 treats its encoder settings as fixed by
-  the `FYP_X_*` environment; Phase 3 can change them at runtime.
+- **X** is started normally. WS2.1 treats its encoder settings as fixed by
+  the `FYP_X_*` environment; WS2.3 can change them at runtime.
 
 ## Test plans
 
 A plan is plain JSON. The full example lives in
-`tools/plans/phase1_smoke.json`.
+`tools/plans/ws2_1_smoke.json`.
 
 ```json
 {
-  "name": "A1 delay sweep",
+  "name": "WS1.3-A1 delay sweep",
   "warmup_s": 5,
   "duration_s": 60,
   "seed": 12345,
@@ -57,7 +57,7 @@ A plan is plain JSON. The full example lives in
 | `workload` | `light`, `medium`, `heavy` | game profile (bots/obstacles/bullets) |
 | `mode` (legacy) | `auto`, `cloud`, `edge` | Y whole-pipeline: RTT auto-switch, force X, force Y |
 | `placement` (planned) | `all_cloud`, `offload_ab`, `all_edge`, `pinned` | task-level placement; task router planned |
-| `video_preset` | `current`, `A0`, `A1`, `A2`, `intra` | recorded in Phase 1; applied to X in Phase 3 |
+| `video_preset` | `current`, `A0`, `A1`, `A2`, `intra` | recorded in WS2.1; applied to X in WS2.3 |
 | `input_pattern` | `idle`, `strafe`, `circle`, `figure8`, `shoot` | deterministic Z input |
 | `warmup_s` | 0–60 | excluded from the measurement |
 | `duration_s` | 0.1–600 | measurement window |
@@ -103,7 +103,7 @@ Y → Z (inside the normal data socket, on a control queue ahead of frames):
 
 ```json
 {"t":"test","cmd":"start","workload":"light","seed":12345,
- "pattern":"strafe","plan":"A1 delay sweep"}
+ "pattern":"strafe","plan":"WS1.3-A1 delay sweep"}
 {"t":"test","cmd":"pause"}
 {"t":"test","cmd":"resume"}
 {"t":"test","cmd":"pattern","pattern":"shoot"}
@@ -114,7 +114,7 @@ Y → X uses the existing `start`/`pause`/`resume`; the X↔Y `DelayLine` carrie
 the timeline delay events. The Y state (`state["test"]`) is pushed at 5 Hz:
 
 ```json
-{"state":"running","name":"A1 delay sweep","warmup_s":5,"duration_s":60,
+{"state":"running","name":"WS1.3-A1 delay sweep","warmup_s":5,"duration_s":60,
  "elapsed_s":12.3,"remaining_s":47.7,"progress":0.205,
  "mode":"X","mode_override":null,"pattern":"strafe","video_preset":"A1",
  "next_event":{"at_s":25,"kind":"delay","value":0,"label":"delay 0 ms"},
@@ -138,27 +138,27 @@ Y writes `logs/reports/<id>.json` and `.csv`:
   (thresholds, game config, Y version, video preset/runtime, paused total).
 - **events** — applied timeline events with elapsed/wall times.
 - **samples** — 5 Hz: `t`, mode, RTT, injected delay, e2e, Z↔Y RTT, X/Y/Z FPS,
-  X encode (Phase 3), Z decode, tick/score/HP, paused flag.
+  X encode (WS2.3), Z decode, tick/score/HP, paused flag.
 - **summary** — `n`, mean, p50, p90, p99, max for RTT, delay, e2e, X/Y/Z FPS,
   encode/decode; paused samples excluded.
 
 The raw per-frame logs remain in `logs/log_x.csv`, `logs/log_y.csv`,
 `logs/log_z.csv`. Historical root logs are archived under `logs/raw/`.
 
-## CLI (Phase 1)
+## CLI (WS2.1)
 
 ```powershell
 $env:FYP_TEST = "1"
 .\run_z.cmd <Y_IP>
 
 .\venv\Scripts\python.exe tools\test_cli.py `
-    --y ws://<Y_IP>:8002 --plan tools\plans\phase1_smoke.json
+    --y ws://<Y_IP>:8002 --plan tools\plans\ws2_1_smoke.json
 ```
 
 `test_cli.py` prints the plan, progress and final summary, and fetches the
 report after the run. Ctrl+C sends `test_stop`.
 
-## Phase 2 — Tk panel
+## WS2.2 — Tk panel
 
 `tools/test_panel.py` (Tk 8.6, stdlib) will provide:
 
@@ -170,9 +170,9 @@ report after the run. Ctrl+C sends `test_stop`.
 - Z process launch/focus (the pygame window is the actual game)
 - optional browser dashboard link for remote monitoring
 
-## Phase 3 — X runtime video
+## WS2.3 — X runtime video
 
-After Phase A captures are finished, add to `x_server.py`:
+After the WS1.1 captures are archived, add to `x_server.py`:
 
 - `{"t":"video","gop":...,"size":[...],"bitrate":...,"intra_refresh":...}`:
   rebuild the H.264 encoder, force an IDR; the Z decoder handles the new size.
@@ -190,7 +190,7 @@ the X encoder is whatever `FYP_X_GOP`, `FYP_X_SIZE`, `FYP_X_BITRATE` and
 |---|---|---|
 | `FYP_TEST=1` | Z | unattended test mode; no menu; waits for Y commands |
 | `FYP_GAME_CONFIG` | Z | alternate game config (the immortal test config) |
-| `FYP_X_GOP`, `FYP_X_SIZE`, `FYP_X_BITRATE` | X | encoder preset at startup (Phase 1/2) |
+| `FYP_X_GOP`, `FYP_X_SIZE`, `FYP_X_BITRATE` | X | encoder preset at startup (fixed until WS2.3) |
 | `FYP_X_INTRA_REFRESH=1` | X and Z | intra-refresh; must match on both |
 | `FYP_X_STREAM_EVERY`, `FYP_Y_STREAM_EVERY` | sender and Z | frame stride; must match |
 | `FYP_HIGH_MS`, `FYP_LOW_MS`, `FYP_BAD_COUNT`, `FYP_RECOVER_S` | Y | RTT mode-switch thresholds |
@@ -199,7 +199,7 @@ the X encoder is whatever `FYP_X_GOP`, `FYP_X_SIZE`, `FYP_X_BITRATE` and
 The test config used by the unattended runs should keep the player alive:
 `player.max_hp=1000`, `player.obstacle_damage=0`, `player.bot_damage=0`, and a
 `light` workload. `tools/autoplay_z.ps1` generates this in
-`%TEMP%\fyp_phaseA\game_config.json` and can start Z with it.
+`%TEMP%\fyp_ws1\game_config.json` and can start Z with it.
 
 ## Troubleshooting
 
@@ -207,7 +207,7 @@ The test config used by the unattended runs should keep the player alive:
 |---|---|---|
 | `test_start` replies “no End Z is connected” | Z not in test mode / not connected | start Z with `FYP_TEST=1`; check Y’s “Z connected” |
 | Test pauses immediately / no frames | duplicate Y or Z processes sharing ports | kill all but one Y and one Z; check `Get-NetTCPConnection -LocalPort 8000,8002` |
-| Report has no X encode | Phase 3 X stats not implemented yet | expected in Phase 1/2; use `log_x.csv` |
+| Report has no X encode | WS2.3 X stats not implemented yet | expected in WS2.1/2.2; use `log_x.csv` |
 | Pause does not resume | `pause` event with `hold_s`, or panel still paused | resume from the panel; verify `state["test"]["state"]` |
 | Delay does not appear | event at/after `duration_s`, or next delay event resets it | check `events` and `state["delay_ms"]` |
 | Z freezes after an intra-refresh gap | Z env missing `FYP_X_INTRA_REFRESH=1` | start X and Z with the same value |
@@ -220,8 +220,8 @@ The test config used by the unattended runs should keep the player alive:
 - `y_gateway.py` — `TestRunner`, dashboard commands, delay/mode timeline,
   Z control queue, X/Y FPS windows, report finalisation.
 - `z_client.py` — `FYP_TEST=1`, test commands, input patterns, overlay, stats.
-- `tools/test_cli.py` — Phase 1 driver.
-- `tools/plans/phase1_smoke.json` — example plan.
+- `tools/test_cli.py` — WS2.1 driver.
+- `tools/plans/ws2_1_smoke.json` — example plan.
 - `tests/test_testplan.py`, `tests/test_report.py` — unit tests.
 
 

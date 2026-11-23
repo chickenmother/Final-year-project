@@ -1,11 +1,11 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-23 14:33 +09:00   (from Y / home PC)
+Last updated : 2026-11-23 14:59 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
 Branch : feature/Cloud_X
-HEAD   : 7d54592  "Phase B: keyframe storm fix, VBV, 120 Hz, threaded decode"
-         (home Y/Z; lab X stays pinned to 4f189b9 until Phase A is done)
+HEAD   : f334298  "Refactor AGENTS documentation: consolidate universal rules, create context and commands references"
+         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 smoke pending)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
@@ -781,6 +781,21 @@ HEAD   : 7d54592  "Phase B: keyframe storm fix, VBV, 120 Hz, threaded decode"
   - Commands/environment moved to docs/References/commands.md.
   - README Directory Structure/Documentation updated for the new references.
   - No code changes. No commit/push.
+
+[2026-11-23 14:59 +09:00 | from Y / home PC — universal workstream naming + roadmap]
+  - Renamed active workstream labels to WS0-WS4 (no more Phase A/B or Phase 1/2/3).
+  - Active plans: phase1_smoke.json -> ws2_1_smoke.json; phaseA_A0/A1/A2.json
+    -> ws1_1_a0/a1/a2.json; added ws1_3_a1.json (WS1.3 post-fix).
+  - Added docs/References/roadmap.md: workstreams, schedule, current progress,
+    next step and the old -> new mapping.
+  - Updated README, AGENTS, context, commands, sync.md, test-panel, code
+    comments/report field, autoplay temp dir, and game/test docstrings.
+  - A0/A1/A2 remain video presets, not phases.
+  - Historical data retained and mapped: logs/raw/phaseA_*, logs/reports/2026*,
+    docs/archive/GAME_MVP_PLAN.md (Milestones 1-6), old sync entries.
+  - Validation: plan-load OK; 27 unittest OK; selftest hash
+    30f043222e75fabf0ec80d2cd7edf6df unchanged; git diff --check clean.
+  - No commit/push. Lab X at cda0f52 (WS1.2); WS1.3 smoke next.
 
 END OF SYNC
 

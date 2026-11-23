@@ -24,3 +24,4 @@ and is read only when the current task needs it.
 - Research/citations — `docs/References/research.md`
 - Plan format — `docs/References/plans.md`
 - Sync format — `docs/References/sync.md`
+- Roadmap/schedule/workstreams — `docs/References/roadmap.md` (read when you need status/next step)
