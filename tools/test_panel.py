@@ -160,7 +160,6 @@ class PanelApp:
         self.form_vars = {}
         self.event_vars = {}
         self.metric_vars = {}
-        self.metric_labels = {}
         self.controls = {}
         self._build()
         self._load_plan_into_form(self.plan)

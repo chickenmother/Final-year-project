@@ -23,8 +23,6 @@ DEFAULT_Y_URI = "ws://127.0.0.1:8002"
 BUSY_STATES = ("starting", "warmup", "running", "paused")
 PLAN_FIELDS = ("name", "warmup_s", "duration_s", "seed", "workload", "mode",
                "video_preset", "input_pattern")
-EVENT_VALUES = {"delay": "delay_ms", "mode": "mode", "pattern": "pattern",
-                "pause": "hold_s"}
 TIMELINE_CHARS = {"delay": "=", "mode": "M", "pattern": "i", "pause": "x"}
 CONTROLS = {"pause": "test_pause", "resume": "test_resume", "stop": "test_stop"}
 SUMMARY_KEYS = ("e2e", "rtt", "z_fps")
