@@ -977,5 +977,20 @@ HEAD   : 224cb18  "WS3.4: L (SQLite on X) + U leaderboard view on Z"
   - Cleanup: X/Y/Z stopped (0 python processes). Lab X still at cda0f52.
   - Next: WS4.2 comparison report over the WAN link; WS4.3 docs/archive.
 
+[2026-11-24 13:15 +09:00 | from Y / home PC — leaderboard "Y unavailable (timeout)" diagnosis]
+  - Repro of the user's flow (play -> game over -> Z reconnects -> leaderboard_get) passes with
+    the ws3.4 code, so the reported timeout is a build mismatch: Z had ws3.4, Y was older (a Y
+    process started before the update, or a checkout on main, which stops at the WS2.2 merge).
+  - An old Y hits KeyError on leaderboard_get (no "keys" field) and drops the Z socket -> Z saw
+    a timeout.
+  - Hardening: Y answers {"t":"version"} with {"y":"ws3.4","leaderboard":true,...}; Z probes it
+    first and reports "Middle Y is an older build - restart it" instead of a bare timeout, and
+    distinguishes ConnectionClosed from OSError/timeout. Y ignores unknown control messages
+    ("keys" not in m -> continue) so a stray message can never kill the link, and answers a
+    leaderboard request X ignores within 2.5 s ("L did not answer...").
+  - Verified: version reply, unknown-message resilience, play->gameover->fetch (2 rows).
+  - 107 tests, selftest hash unchanged; tiers stopped afterwards.
+  - Operator note: run X/Y/Z from dev (or merge dev -> main); main has no WS3.x code yet.
+
 END OF SYNC
 

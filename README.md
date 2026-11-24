@@ -621,6 +621,8 @@ state upload.
   from the relayed rows only — no game logic, no X/Z dependence beyond the fetch.
 - Rows record `source` (`manual`/`test`) and `placement`, so test runs can be filtered in the
   report; `name` comes from `FYP_PLAYER` (default `player`).
+- A `{"t":"version"}` probe lets Z name an out-of-date Middle Y instead of timing out, and Y
+  answers an unanswered L request after 2.5 s with a clear error.
 - Evidence (local): a direct X submit returned rank 1 and the row, Z's `leaderboard_get` returned
   the same row through Y, and a 1-HP test match (reported as `game over`) added a second row with
   `source: test`. The U screen renders both rows (`%TEMP%\ws34_u.png` during the check).

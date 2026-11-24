@@ -53,6 +53,8 @@ task_stats = TaskStats()               # per-task timings measured on Y (WS3.1)
 offload = {"n": 0, "bytes": 0, "kb_s": 0.0, "total": 0}   # WS3.2 state upload
 offload_window = collections.deque()   # (t, bytes) over the last second
 edge_over_sent = False                 # WS3.3: Y owns the game-over event
+lb_pending = {}                        # ws -> timeout task for a pending L request
+Y_BUILD = "ws3.4"                      # advertised by {"t":"version"}
 
 
 def count_offload(nbytes):
@@ -160,6 +162,22 @@ def send_x_control(payload):
     return True
 
 
+async def _lb_timeout(ws):
+    """Answer a leaderboard request that X never answered (WS3.4 guard)."""
+    try:
+        await asyncio.sleep(2.5)
+    except asyncio.CancelledError:
+        return
+    if lb_pending.pop(ws, None) is None:
+        return
+    try:
+        await ws.send(json.dumps({"t": "leaderboard", "rows": [],
+                                  "error": "L did not answer within 2.5 s "
+                                           "(is Cloud X running ws3.4?)"}))
+    except (ConnectionClosed, OSError):
+        pass
+
+
 def submit_score():
     """WS3.4: L is pinned to X, so Y routes the finished match's score there."""
     name = os.environ.get("FYP_PLAYER", "player")
@@ -263,6 +281,10 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
                 test_runner.on_game_over()
         elif m["t"] == "task_result" and m.get("id") == "L":
             # WS3.4: L lives on X; forward the answer to Z's U view.
+            for waiter in list(lb_pending):
+                task = lb_pending.pop(waiter, None)
+                if task is not None:
+                    task.cancel()
             if m.get("ok"):
                 state["leaderboard"] = m.get("rows") or []
                 broadcast(json.dumps({"t": "leaderboard",
@@ -937,6 +959,12 @@ async def z_handler(ws):
                 if test_runner is not None:
                     test_runner.on_game_start()
                 continue
+            if m.get("t") == "version":
+                # Lets Z tell an old Y apart from a broken leaderboard (WS3.4).
+                await ws.send(json.dumps({"t": "version", "y": Y_BUILD,
+                                          "leaderboard": True, "placement": True,
+                                          "x_video": True}))
+                continue
             if m.get("t") == "leaderboard_get":
                 # WS3.4: Z asks for the top rows; L lives on X.
                 top = m.get("top", 10)
@@ -945,7 +973,14 @@ async def z_handler(ws):
                     await ws.send(json.dumps({
                         "t": "leaderboard", "rows": [],
                         "error": "Cloud X is not linked"}))
+                    continue
+                task = lb_pending.pop(ws, None)
+                if task is not None:
+                    task.cancel()
+                lb_pending[ws] = asyncio.create_task(_lb_timeout(ws))
                 continue
+            if "keys" not in m:
+                continue            # unknown control message: never kill the link
             inp["keys"], inp["seq"] = m["keys"], m["n"]
             state["e2e"] = m.get("e2e", 0.0)
             state["rtt_zy"] = m.get("rzy", state["rtt_zy"])
@@ -965,6 +1000,9 @@ async def z_handler(ws):
     finally:
         sender.cancel()
         zs.pop(ws, None)
+        waiter = lb_pending.pop(ws, None)
+        if waiter is not None:
+            waiter.cancel()
         if not zs:
             inp["keys"] = ""           # do not keep steering after the player disconnects
             state["playing"] = False

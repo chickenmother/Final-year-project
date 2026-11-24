@@ -343,6 +343,13 @@ ticks of medium workload, plus a remote-C tick-for-tick comparison).
   not linked, Y answers immediately with an error row set instead of hanging.
 - U (`ui/leaderboard.py`) draws the ranked table and returns on
   `Esc`/`Enter`/click; the menu entry and the `L` key open it.
+- Version check: Z sends `{"t":"version"}` before the fetch; Y answers
+  `{"t":"version","y":"ws3.4","leaderboard":true,…}`. An older Y that does not
+  answer (or closes the socket on the unknown message) is reported as
+  *“Middle Y is an older build — restart it”* instead of a bare timeout.
+- Guards: Y answers a leaderboard request that X ignores within 2.5 s
+  (*“L did not answer…”*) and ignores unknown control messages instead of
+  dropping the Z link.
 
 ## Environment
 
@@ -373,6 +380,9 @@ The test config used by the unattended runs should keep the player alive:
 | `video_ok` never arrives | encoder rebuild failed | check X's log for `video: encoder rebuild failed`; the previous encoder keeps streaming |
 | Placement shows `applied: false` | X rejected the table | All Cloud and Offload A/B are supported; All Edge is not yet (WS3.3) |
 | `offload` shows `-` | the run is not using Offload A/B | set `placement: offload_ab`; All Cloud has no state upload |
+| Leaderboard says “Middle Y closed the link” / “older build” | Z has the ws3.4 code but Y is old | pull `dev` and restart Y (and X); `main` does not have WS3.x yet |
+| Leaderboard says “L did not answer within 2.5 s” | X is old or unreachable | pull `dev` and restart X; check the X link in the panel |
+| Leaderboard rows are empty after a game | X rejected/never stored the score (old X) | restart X from `dev`; replay the match to submit |
 | `task_stats` empty | no X link, or the run has not started | start a plan with X linked; `sim` comes from Y's tick loop |
 | Active tier flips to Y during a placement run | a placement run now pins rendering to its D tier | if it still flips, check `mode` is `auto` and the placement table is non-legacy |
 | Pause does not resume | `pause` event with `hold_s`, or panel still paused | resume from the panel; verify `state["test"]["state"]` |

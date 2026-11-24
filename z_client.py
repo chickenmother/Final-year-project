@@ -38,7 +38,7 @@ def pattern_keys(name, elapsed):
     return ""
 
 
-async def fetch_leaderboard(top=10, timeout=3.0):
+async def fetch_leaderboard(top=10, timeout=4.0):
     """Ask Y for L's top rows (WS3.4); returns ``(rows, error, count)``."""
     end = time.monotonic() + timeout
     try:
@@ -47,11 +47,13 @@ async def fetch_leaderboard(top=10, timeout=3.0):
                            ping_timeout=C.PING_TIMEOUT) as ws:
             await ws.send(json.dumps({"t": "hello",
                                       "h264": H264Decoder is not None}))
+            await ws.send(json.dumps({"t": "version"}))     # old-Y detection
             await ws.send(json.dumps({"t": "leaderboard_get", "top": top}))
             while True:
                 left = end - time.monotonic()
                 if left <= 0:
-                    return [], "no reply from Y", None
+                    return ([], "Y did not answer in time (is it running the "
+                                "ws3.4 build?)", None)
                 raw = await asyncio.wait_for(ws.recv(), timeout=left)
                 if not isinstance(raw, (str, bytes, bytearray)):
                     continue
@@ -59,10 +61,18 @@ async def fetch_leaderboard(top=10, timeout=3.0):
                     msg = json.loads(raw)
                 except ValueError:
                     continue
-                if isinstance(msg, dict) and msg.get("t") == "leaderboard":
+                if not isinstance(msg, dict):
+                    continue
+                if msg.get("t") == "version" and not msg.get("leaderboard"):
+                    return [], (f"Middle Y is an older build ({msg.get('y')}); "
+                                f"restart it from the ws3.4 code"), None
+                if msg.get("t") == "leaderboard":
                     return (msg.get("rows") or [], msg.get("error"),
                             msg.get("count"))
-    except (OSError, ConnectionClosed, asyncio.TimeoutError) as exc:
+    except ConnectionClosed:
+        return [], ("Middle Y closed the link — it is probably an older build; "
+                    "restart it from the ws3.4 code"), None
+    except (OSError, asyncio.TimeoutError) as exc:
         return [], f"Y unavailable ({type(exc).__name__})", None
 
 
