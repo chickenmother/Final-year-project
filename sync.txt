@@ -1,11 +1,11 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-24 12:50 +09:00   (from Y / home PC)
+Last updated : 2026-11-24 13:30 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
-Branch : feature/ws3.4-leaderboard   (from dev; main has PR #1)
-HEAD   : 224cb18  "WS3.4: L (SQLite on X) + U leaderboard view on Z"
-         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.2 + WS2.3 + WS3.1-4 complete)
+Branch : feature/ws4.2-comparison   (from dev; main has PR #1)
+HEAD   : 2017b69  "WS4.2: cross-pattern comparison tool (markdown/CSV from reports)"
+         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.x + WS3.x + WS4.2 tooling)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
