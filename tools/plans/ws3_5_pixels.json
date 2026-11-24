@@ -1,0 +1,14 @@
+{
+  "name": "WS3.5 pixels channel (E on Y)",
+  "warmup_s": 3,
+  "duration_s": 10,
+  "seed": 12345,
+  "workload": "light",
+  "mode": "auto",
+  "video_preset": "current",
+  "placement": "custom",
+  "placement_tasks": {"A": "X", "B": "X", "C": "X", "D": "X", "E": "Y",
+                      "L": "X"},
+  "input_pattern": "strafe",
+  "events": []
+}

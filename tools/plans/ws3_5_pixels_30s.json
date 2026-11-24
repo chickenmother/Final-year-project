@@ -1,0 +1,14 @@
+{
+  "name": "WS3.5 pixels channel 30s (E on Y, medium)",
+  "warmup_s": 5,
+  "duration_s": 30,
+  "seed": 12345,
+  "workload": "medium",
+  "mode": "auto",
+  "video_preset": "current",
+  "placement": "custom",
+  "placement_tasks": {"A": "X", "B": "X", "C": "X", "D": "X", "E": "Y",
+                      "L": "X"},
+  "input_pattern": "strafe",
+  "events": []
+}

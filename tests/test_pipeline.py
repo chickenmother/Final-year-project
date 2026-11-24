@@ -176,11 +176,13 @@ class ChannelStatsTests(unittest.TestCase):
         b.crossing(PIXELS, 20)
         b.encoded()
         b.stall(7)
+        b.mirror(99)
         merged = merge_channels(a, b)
         self.assertIs(merged, a)
         self.assertEqual(merged.state_msgs, 1)
         self.assertEqual(merged.pixel_msgs, 1)
         self.assertEqual(merged.encode_frames, 1)
+        self.assertEqual(merged.mirror_bytes, 99)
         self.assertEqual(merged.stall_ticks, [7])
 
     def test_pixel_format_labels(self):

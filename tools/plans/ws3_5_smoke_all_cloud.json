@@ -1,0 +1,12 @@
+{
+  "name": "WS3.5 smoke All Cloud",
+  "warmup_s": 3,
+  "duration_s": 8,
+  "seed": 12345,
+  "workload": "light",
+  "mode": "auto",
+  "video_preset": "current",
+  "placement": "all_cloud",
+  "input_pattern": "strafe",
+  "events": []
+}

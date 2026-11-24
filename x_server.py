@@ -143,6 +143,11 @@ async def handler(ws):
                 if chain is not None:
                     payload["chain"] = chain_stats.snapshot()   # WS3.5
                 await send(json.dumps(payload))
+            elif chain is not None:
+                # A chain whose E lives on Y never streams from here, so the
+                # encoder stats are idle; the crossing counters still matter.
+                await send(json.dumps({"t": "x_stats",
+                                       "chain": chain_stats.snapshot()}))
 
     async def run_chain(stage, keys, seq, snapshot):
         """WS3.5: run X's slice of the custom chain; forwards at a crossing."""
@@ -152,7 +157,8 @@ async def handler(ws):
         if snapshot is not None:
             game.restore(snapshot, effects=False)
         ctx = {"surface": None, "render_ms": None, "sim_ms": None,
-               "hit_ms": None, "stream_here": "E" in run}
+               "hit_ms": None, "stream_here": "E" in run,
+               "ended": forward is None}
         for name in run:
             t_stage = time.perf_counter()
             if name == "A":
@@ -178,6 +184,7 @@ async def handler(ws):
         if forward == "E":
             # D here, E on Y: ship the rendered pixels (JPEG unless RAW).
             fmt = P.pixel_format(raw=False, quality=C.X_QUALITY)
+            chain_stats.set_pixel_format(fmt)
             data = game.render(C.X_SIZE, C.X_QUALITY)
             payload = P.pixels_message(game.tick, seq, fmt, C.X_SIZE,
                                        game.snapshot(), data)
@@ -243,6 +250,8 @@ async def handler(ws):
         log_frame(game.tick, seq, codec, is_key, encode_ms, nbytes)
         stats.add(encode_ms, nbytes, is_key, sim_ms=ctx.get("sim_ms"),
                   hit_ms=ctx.get("hit_ms"), render_ms=render_ms)
+        if chain is not None:
+            chain_stats.encoded(encode_ms)      # WS3.5: E on this tier
         return nbytes
 
     async def emit_pixels(seq, fmt, size, data, snapshot=None):
@@ -321,7 +330,7 @@ async def handler(ws):
                     continue
                 if paused:
                     continue
-                ctx = run_chain(stage, keys, seq, snapshot)
+                ctx = await run_chain(stage, keys, seq, snapshot)
                 if ctx is None:
                     continue
                 if game.game_over:
@@ -330,9 +339,11 @@ async def handler(ws):
                         await send(json.dumps({"t": "game_over",
                                                "score": game.score,
                                                "deaths": game.deaths}))
-                elif ctx.get("surface") is not None or ctx.get("stream_here"):
+                elif ctx.get("stream_here"):
+                    # E ran here (with D): one render, one encode, one frame.
                     await emit_frame(seq, ctx)
-                if chain.stream_tier == "X":
+                if ctx.get("ended"):
+                    # E ran here, so Y has no other way to see this tick.
                     await send(P.final_message(game.tick, seq, game.snapshot()))
                 continue
             if t == "pong":

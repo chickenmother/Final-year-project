@@ -1,0 +1,14 @@
+{
+  "name": "WS3.5 raw pixels (D on Y, E on X)",
+  "warmup_s": 3,
+  "duration_s": 10,
+  "seed": 12345,
+  "workload": "light",
+  "mode": "auto",
+  "video_preset": "current",
+  "placement": "custom",
+  "placement_tasks": {"A": "Y", "B": "Y", "C": "Y", "D": "Y", "E": "X",
+                      "L": "X"},
+  "input_pattern": "strafe",
+  "events": []
+}

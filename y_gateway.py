@@ -96,9 +96,14 @@ class DelayLine:                       # simulated one-way network delay, order 
     def __init__(self):
         self.q, self.fn, self.delay = asyncio.Queue(), None, 0.0
     def put(self, d):
+        """Queue a message; False when it was dropped (link down or backlog).
+
+        WS3.5 uses the return value to count stalls instead of failing a run.
+        """
         if self.fn is None or self.q.qsize() > 2000:
-            return
+            return False
         self.q.put_nowait((time.monotonic() + self.delay, d))
+        return True
     def clear(self):
         while not self.q.empty():
             self.q.get_nowait()
@@ -269,6 +274,7 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
         if parsed is not None:
             # WS3.5: D on X, E here — run the encoder on the received pixels.
             tick, seq, fmt, size, snapshot, data = parsed
+            chain_stats.set_pixel_format(fmt)
             if snapshot is not None:
                 game.restore(snapshot, effects=False)
             state["tick"] = game.tick
@@ -306,6 +312,7 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
                 game.restore(m["s"], effects=False)
                 state["tick"] = game.tick
                 state["game"] = game_summary()
+                chain_stats.mirror(len(msg))
         elif m["t"] == "pong":
             rtt = (time.monotonic() - m["ts"]) * 1000
             state["rtt"] = 0.7 * state["rtt"] + 0.3 * rtt if state["rtt"] else rtt
@@ -337,8 +344,10 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
                 print(f"L error: {m.get('error')}")
         elif m["t"] == "x_stats":
             # WS2.3: 1 Hz encoder summary from Cloud X.
-            state["x_stats"] = {key: value for key, value in m.items()
-                                if key not in ("t", "chain")}
+            encoder = {key: value for key, value in m.items()
+                       if key not in ("t", "chain")}
+            if encoder:
+                state["x_stats"] = encoder
             if m.get("chain") is not None:
                 state["x_channels"] = m["chain"]      # WS3.5 counters from X
         elif m["t"] == "video_ok":
@@ -532,10 +541,8 @@ def chain_tick(keys, seq):
     else:
         payload = P.stage_message("A", game.tick + 1, seq, keys)
         chain_stats.crossing(P.STATE, len(payload))
-        if up is None or up.fn is None:
+        if up is None or not up.put(payload):
             chain_stats.stall(game.tick + 1)
-        else:
-            up.put(payload)
 
 
 def run_chain(stage, keys="", seq=0, snapshot=None, pixels=None):
@@ -591,10 +598,8 @@ def forward_chain(forward, keys, seq, frame):
         payload = P.stage_message(forward, game.tick, seq, keys,
                                   game.snapshot())
     chain_stats.crossing(P.PIXELS if forward == "E" else P.STATE, len(payload))
-    if up is None or up.fn is None:
+    if up is None or not up.put(payload):
         chain_stats.stall(game.tick)
-        return
-    up.put(payload)
 
 
 def offload_pixels(frame):
@@ -606,10 +611,12 @@ def offload_pixels(frame):
     if PIXELS_RAW and frame.get("surface") is not None:
         import pygame
         surface = frame["surface"]
-        return (pygame.image.tobytes(surface, "RGBA"),
-                P.pixel_format(raw=True), surface.get_size())
-    return (game.render(C.Y_SIZE, C.Y_QUALITY, smooth=False),
-            P.pixel_format(quality=C.Y_QUALITY), C.Y_SIZE)
+        fmt = P.pixel_format(raw=True)
+        chain_stats.set_pixel_format(fmt)
+        return pygame.image.tobytes(surface, "RGBA"), fmt, surface.get_size()
+    fmt = P.pixel_format(quality=C.Y_QUALITY)
+    chain_stats.set_pixel_format(fmt)
+    return (game.render(C.Y_SIZE, C.Y_QUALITY, smooth=False), fmt, C.Y_SIZE)
 
 
 def pixels_image(pixels):
@@ -716,12 +723,19 @@ class TestRunner:
         self.video_applied = None        # ... and what X confirmed
 
     def _mode_override(self):
-        """Render tier: the placement's D tier when it is not legacy (WS3.1)."""
+        """Render tier: the placement's D tier when it is not legacy (WS3.1).
+
+        WS3.5: a custom chain streams from E's tier, which is not D's tier when
+        the pixels channel splits them; ``on_game_start`` re-applies this, so it
+        must not fall back to D.
+        """
         plan = self.plan
         if plan is None:
             return None
         table = plan.placement_table()
         if table is not None and plan.mode == "auto":
+            if plan.placement == "custom":
+                return Chain(table).stream_tier
             return render_tier(table)
         return plan.mode_override()
 
@@ -1132,16 +1146,19 @@ class TestRunner:
                 "crossings": int(state.get("chain_crossings") or 0),
                 "stream_tier": (chain.stream_tier if chain is not None
                                 else None),
-                "pixels_format": (P.pixel_format(raw=PIXELS_RAW,
-                                                 quality=C.Y_QUALITY)
-                                  if chain is not None and chain.pixel_channel
-                                  else None),
+                "pixels_format": (channels.get("pixel_fmt")
+                                  or (P.pixel_format(raw=PIXELS_RAW,
+                                                     quality=C.Y_QUALITY)
+                                      if chain is not None
+                                      and chain.pixel_channel else None)),
                 "channels": channels,
                 "channels_x": x_channels,
                 "stalls": (int(channels.get("stalls") or 0)
                            + int(x_channels.get("stalls") or 0)),
                 "encode_fps": ((channels.get("encode_frames") or 0)
-                               / max(0.001, self._elapsed())),
+                               + (x_channels.get("encode_frames") or 0))
+                              / max(0.001, self._elapsed()
+                                    + self.plan.warmup_s),
                 "stage_p50": channels.get("stage_p50") or {},
                 "stage_p50_x": x_channels.get("stage_p50") or {},
             })

@@ -146,6 +146,9 @@ class ChannelStats:
         self.state_bytes = 0
         self.pixel_msgs = 0
         self.pixel_bytes = 0
+        self.mirror_msgs = 0
+        self.mirror_bytes = 0
+        self.pixel_fmt = None
         self.stalls = 0
         self.stall_ticks = []
         self.encode_frames = 0
@@ -165,6 +168,16 @@ class ChannelStats:
         self.stalls += 1
         if tick is not None and len(self.stall_ticks) < 50:
             self.stall_ticks.append(int(tick))
+
+    def mirror(self, nbytes):
+        """State echoed back to keep Y's mirror current (E ran on X)."""
+        self.mirror_msgs += 1
+        self.mirror_bytes += int(nbytes)
+
+    def set_pixel_format(self, fmt):
+        """Remember which pixel encoding the D->E channel actually used."""
+        if fmt:
+            self.pixel_fmt = str(fmt)
 
     def stage(self, stage, ms):
         stage = _stage(stage)
@@ -187,6 +200,9 @@ class ChannelStats:
             "state_bytes": self.state_bytes,
             "pixel_msgs": self.pixel_msgs,
             "pixel_bytes": self.pixel_bytes,
+            "mirror_msgs": self.mirror_msgs,
+            "mirror_bytes": self.mirror_bytes,
+            "pixel_fmt": self.pixel_fmt,
             "stalls": self.stalls,
             "stall_ticks": list(self.stall_ticks),
             "encode_frames": self.encode_frames,
@@ -197,7 +213,8 @@ class ChannelStats:
 def merge_channels(into, other):
     """Fold ``other``'s counters into ``into`` (in place) and return ``into``."""
     for name in ("state_msgs", "state_bytes", "pixel_msgs", "pixel_bytes",
-                 "stalls", "encode_frames", "encode_ms"):
+                 "mirror_msgs", "mirror_bytes", "stalls", "encode_frames",
+                 "encode_ms"):
         setattr(into, name, getattr(into, name) + getattr(other, name))
     for stage in STAGES:
         into.stage_ms[stage] += other.stage_ms[stage]

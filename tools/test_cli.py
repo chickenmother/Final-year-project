@@ -67,6 +67,7 @@ async def run(args):
         await ws.send(json.dumps({"cmd": "test_start",
                                   "plan": plan.to_dict()}))
         last = None
+        started = False
         try:
             async for raw in ws:
                 message = json.loads(raw)
@@ -94,7 +95,12 @@ async def run(args):
                 if not test:
                     continue
                 last = _print_state(message, last)
-                if last in ("finished", "error"):
+                if last in ("starting", "warmup", "running", "paused"):
+                    started = True
+                # A snapshot from the previous run is still in Y's state when
+                # we connect: wait until this run has actually started before
+                # treating "finished" as ours (otherwise the CLI exits at once).
+                if last in ("finished", "error") and started:
                     report_id = test.get("report_id")
                     if report_id:
                         await ws.send(json.dumps({"cmd": "get_report",
