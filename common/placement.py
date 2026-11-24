@@ -82,6 +82,16 @@ def owners(tasks, tier):
     return [task for task in TASKS if (tasks or {}).get(task) == tier]
 
 
+def render_tier(tasks):
+    """Tier that renders in ``tasks`` (D), or ``None`` when unknown.
+
+    A placement experiment must render where the pattern says, otherwise the
+    legacy RTT fallback would move rendering to Y and invalidate the run
+    (e.g. "All Cloud" measured with Y rendering).
+    """
+    return (tasks or {}).get("D")
+
+
 def describe(tasks):
     """Human-readable summary for the panel/status line."""
     if not tasks:

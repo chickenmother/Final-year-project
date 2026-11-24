@@ -245,9 +245,11 @@ def task_line(task_stats, task):
     tiers = (task_stats or {}).get(task) or {}
     parts = []
     for tier in ("X", "Y"):
-        entry = tiers.get(tier) or {}
-        if entry.get("p50") is not None:
-            parts.append(f"{tier} {fmt(entry.get('p50'), 1)}")
+        value = (tiers.get(tier) or {}).get("p50")
+        if value is None:
+            continue
+        digits = 2 if abs(_number(value)) < 1 else 1     # 0.02 ms must not read 0.0
+        parts.append(f"{tier} {fmt(value, digits)}")
     return " / ".join(parts) or "-"
 
 

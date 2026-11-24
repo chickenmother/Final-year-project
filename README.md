@@ -504,6 +504,8 @@ tasks X owns.
 - Per-task timings: `sim` (A–C inside `Game.step`), `render` (D), `encode` (E) and `net` (hop),
   measured on both tiers, merged into `state["task_stats"]` and written to the report's
   `environment.task_stats` (`{"sim": {"X": {...}, "Y": {...}}, ...}`).
+- A placement run with `mode: auto` **pins rendering to the pattern's D tier** (`render_tier()`),
+  so the legacy RTT fallback cannot quietly move D to Y and invalidate an All Cloud capture.
 
 Local E2E `20261124-111232` (all three tiers on one PC, light workload, preset A1):
 `sim X 0.02 / Y 0.02 ms`, `render X 0.46 ms`, `encode X 5.21 ms` (render+encode),

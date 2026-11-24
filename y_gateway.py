@@ -12,6 +12,7 @@ from common.placement import (
     describe as describe_placement,
     merge_metrics,
     pattern_table,
+    render_tier,
     validate as validate_placement,
 )
 from common.testplan import MODE_OVERRIDE, PlanError, TestPlan, video_payload
@@ -501,6 +502,14 @@ class TestRunner:
         else:
             print(f"[{time.strftime('%X')}] test: Cloud X not linked; "
                   f"placement {plan.placement} recorded only")
+        # A placement run must render where the pattern says; otherwise the
+        # legacy RTT fallback would move D to Y and invalidate the measurement.
+        if table is not None and plan.mode == "auto":
+            state["mode_override"] = render_tier(table)
+            update_mode()
+            send_stream()
+            print(f"[{time.strftime('%X')}] test: rendering pinned to "
+                  f"{state['mode_override']} by the placement")
         payload = {"t": "test", "cmd": "start", "workload": plan.workload,
                    "seed": plan.seed, "pattern": plan.input_pattern,
                    "plan": plan.name}

@@ -9,6 +9,7 @@ from common.placement import (
     merge_metrics,
     owners,
     pattern_table,
+    render_tier,
     validate,
 )
 
@@ -78,6 +79,12 @@ class ValidationTests(unittest.TestCase):
         self.assertIn("A/B on Y", describe(table))
         self.assertIn("U on Z", describe(table))
         self.assertEqual(describe({}), "legacy whole-pipeline")
+
+    def test_render_tier_follows_the_pattern(self):
+        self.assertEqual(render_tier(pattern_table("all_cloud")), "X")
+        self.assertEqual(render_tier(pattern_table("offload_ab")), "X")
+        self.assertEqual(render_tier(pattern_table("all_edge")), "Y")
+        self.assertIsNone(render_tier({}))
 
 
 class TaskStatsTests(unittest.TestCase):

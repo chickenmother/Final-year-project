@@ -194,10 +194,15 @@ class LiveStateTests(unittest.TestCase):
                                 "encode": {}}}
         values = pm.metrics(state)
         self.assertIn("A/B/C/D/E/L on X", values["placement"])
-        self.assertEqual(values["task_sim"], "X 1.2 / Y 0.4")
+        self.assertEqual(values["task_sim"], "X 1.2 / Y 0.40")
         self.assertEqual(values["task_render"], "X 2.5")
         self.assertEqual(values["task_encode"], "-")
         self.assertEqual(pm.metrics({})["placement"], "legacy whole-pipeline")
+
+    def test_sub_millisecond_task_p50_keeps_two_decimals(self):
+        state = {"task_stats": {"sim": {"X": {"p50": 0.02},
+                                        "Y": {"p50": 0.014}}}}
+        self.assertEqual(pm.metrics(state)["task_sim"], "X 0.02 / Y 0.01")
 
     def test_placement_payload(self):
         self.assertEqual(pm.placement_payload("all_cloud"),

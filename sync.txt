@@ -896,5 +896,20 @@ HEAD   : c8fdf02  "WS3.1: task router + All Cloud placement and per-task metrics
   - Lab X remains at cda0f52; pull it before the next lab capture.
   - Next: WS3.2 Offload A/B.
 
+[2026-11-24 11:35 +09:00 | from Y / home PC — panel usability check + fixes]
+  - Opened the real Tk panel against a live X/Y/Z stack and screenshotted it (headless
+    Z, local X): layout, run controls, metrics, timeline bars, reports list all usable.
+  - Fix 1: Apply video to X / Apply placement stayed greyed out during a run, defeating the
+    WS2.3 runtime switching; they now stay enabled while Start/Apply/Load/Remove/Launch Z lock.
+  - Fix 2: sub-millisecond task p50s read "0.0"; task lines now use 2 decimals below 1 ms
+    (sim 0.02 / Y 0.02 instead of 0.0 / 0.0).
+  - Fix 3: reports table summary column was clipped with no way to scroll; added a horizontal
+    scrollbar. Timeline bars narrowed 54 -> 40 chars so the label column fits.
+  - Fix 4 (design): an All Cloud run with mode=auto fell back to Y rendering when the injected
+    delay pushed RTT over HIGH_MS (first screenshot: mode Y, x_fps 0). A non-legacy placement
+    now pins rendering to the pattern's D tier (render_tier); verified mode stays X with a
+    60 ms delay event applied.
+  - Validation: 92 tests, selftest hash unchanged; panel closed cleanly.
+
 END OF SYNC
 

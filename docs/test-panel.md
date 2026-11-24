@@ -268,7 +268,6 @@ Caveats:
 - Per-task metrics: Y times `sim` (A–C inside `Game.step`), its fallback
   `render`/`encode`, and merges X's `sim_p50`/`render_p50`/`encode_p50` plus
   the X↔Y and Z↔Y hops into `state["task_stats"]`, e.g.
-
 ```json
 {"sim": {"Y": {"n": 120, "p50": 0.02, "p95": 0.03}, "X": {"n": 121, "p50": 0.02}},
  "render": {"X": {"n": 121, "p50": 0.46}},
@@ -278,6 +277,10 @@ Caveats:
 
 `x_stats.encode_p50` stays "render + encode" (the WS1/WS2 log column) for
 comparability; `render_p50` and `sim_p50` are the new split.
+
+When `mode: auto`, a non-legacy placement pins rendering to the pattern's D tier
+(`render_tier()`), so the RTT fallback cannot move D to Y mid-run and turn an
+All Cloud capture into a Y-rendered one.
 
 The report records `environment.placement`, `placement_table`,
 `placement_applied` and `task_stats`, so All Cloud can be compared with the
@@ -311,6 +314,7 @@ The test config used by the unattended runs should keep the player alive:
 | `video_ok` never arrives | encoder rebuild failed | check X's log for `video: encoder rebuild failed`; the previous encoder keeps streaming |
 | Placement shows `applied: false` | X rejected the table (it cannot skip tasks yet) | expected for `offload_ab`/`all_edge` until WS3.2/3.3; use `all_cloud` |
 | `task_stats` empty | no X link, or the run has not started | start a plan with X linked; `sim` comes from Y's tick loop |
+| Active tier flips to Y during a placement run | a placement run now pins rendering to its D tier | if it still flips, check `mode` is `auto` and the placement table is non-legacy |
 | Pause does not resume | `pause` event with `hold_s`, or panel still paused | resume from the panel; verify `state["test"]["state"]` |
 | Delay does not appear | event at/after `duration_s`, or next delay event resets it | check `events` and `state["delay_ms"]` |
 | Z freezes after an intra-refresh gap | Z env missing `FYP_X_INTRA_REFRESH=1` | start X and Z with the same value |

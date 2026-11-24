@@ -401,9 +401,13 @@ class PanelApp:
         scroll = ttk.Scrollbar(frame, orient="vertical",
                                command=self.report_tree.yview)
         scroll.grid(row=0, column=1, sticky="ns")
-        self.report_tree.configure(yscrollcommand=scroll.set)
+        hscroll = ttk.Scrollbar(frame, orient="horizontal",
+                                command=self.report_tree.xview)
+        hscroll.grid(row=1, column=0, columnspan=2, sticky="ew")
+        self.report_tree.configure(yscrollcommand=scroll.set,
+                                   xscrollcommand=hscroll.set)
         row = ttk.Frame(frame)
-        row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         ttk.Button(row, text="Refresh", command=self.on_refresh_reports).pack(
             side="left")
         ttk.Button(row, text="Open JSON", command=self.on_open_report).pack(
@@ -526,7 +530,7 @@ class PanelApp:
                                            row["label"]))
         self.timeline.configure(state="normal")
         self.timeline.delete("1.0", "end")
-        for row in pm.timeline_rows(self.plan, width=54):
+        for row in pm.timeline_rows(self.plan, width=40):
             self.timeline.insert(
                 "end", f"{row['kind']:<8}{row['bar']}  {row['labels']}\n")
         self.timeline.configure(state="disabled")
@@ -564,8 +568,7 @@ class PanelApp:
             widget = self.controls.get(key)
             if widget is not None:
                 widget.configure(state="normal" if state[key] else "disabled")
-        for key in ("apply", "preview", "remove_event", "launch_z", "apply_video",
-                    "apply_placement"):
+        for key in ("apply", "preview", "remove_event", "launch_z"):
             widget = self.controls.get(key)
             if widget is not None:
                 widget.configure(state="normal" if state["edit"] else "disabled")

@@ -53,7 +53,7 @@ Adjust the sequence to the FYP deadline.
   `20261123-164025` and the WS3.1 All Cloud E2E `20261124-111232`
   (sim X 0.02 / Y 0.02 ms, render X 0.46 ms, encode X 5.21 ms, net X 2.55 / Z 3.5 ms,
   e2e p50 12.6 ms, X 60 fps; Offload A/B correctly rejected).
-- Validation gate: 90 unit tests, selftest hash `30f043...`, and all test plans load.
+- Validation gate: 92 unit tests, selftest hash `30f043...`, and all test plans load.
 
 ## Current progress
 
