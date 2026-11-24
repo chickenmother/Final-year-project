@@ -12,7 +12,14 @@ import io
 import json
 from pathlib import Path
 
-from common.placement import PATTERN_NAMES, describe as describe_placement
+from common.placement import (
+    PATTERN_NAMES,
+    STAGES,
+    describe as describe_placement,
+    describe_chain,
+    pattern_table,
+    resolve_chain,
+)
 from common.testplan import (
     EVENT_KINDS,
     PLACEMENTS,
@@ -29,6 +36,8 @@ PLAN_FIELDS = ("name", "warmup_s", "duration_s", "seed", "workload", "mode",
 TIMELINE_CHARS = {"delay": "=", "mode": "M", "pattern": "i", "pause": "x"}
 CONTROLS = {"pause": "test_pause", "resume": "test_resume", "stop": "test_stop"}
 SUMMARY_KEYS = ("e2e", "rtt", "z_fps")
+TASK_ROWS = STAGES + ("L",)          # WS3.5: editable placement rows
+TIER_CHOICES = ("X", "Y")
 
 
 def blank_plan(name="WS2.2 panel run"):
@@ -40,19 +49,28 @@ def blank_plan(name="WS2.2 panel run"):
 
 # -- plan editing -------------------------------------------------------
 
-def build_plan(fields, events=()):
-    """Turn form values (usually strings) into a validated plan."""
+def build_plan(fields, events=(), tasks=None):
+    """Turn form values (usually strings) into a validated plan.
+
+    ``tasks`` is the per-stage table used when ``fields["placement"]`` is
+    ``"custom"`` (WS3.5).
+    """
     raw = {key: fields[key] for key in PLAN_FIELDS if key in fields}
     raw["events"] = [dict(event) for event in events]
+    if str(raw.get("placement", "")).strip().lower() == "custom" and tasks:
+        raw["placement_tasks"] = {str(key).strip().upper():
+                                  str(value).strip().upper()
+                                  for key, value in tasks.items()}
     return TestPlan.from_dict(raw)
 
 
 def update_plan(plan, fields):
-    """Apply changed form values to ``plan``, keeping its events."""
+    """Apply changed form values to ``plan``, keeping its events and table."""
     events = plan.to_dict()["events"]
+    tasks = plan.placement_tasks if plan.placement == "custom" else None
     raw = plan.to_dict()
     raw.update({key: value for key, value in fields.items() if key in PLAN_FIELDS})
-    return build_plan(raw, events)
+    return build_plan(raw, events, tasks)
 
 
 def plan_text(plan):
@@ -336,10 +354,56 @@ def x_stop_payload():
 
 
 def placement_payload(pattern):
-    """Dashboard command that switches the router's placement (WS3.1)."""
+    """Dashboard command that switches the router's placement (WS3.1).
+
+    ``pattern`` may be a preset name or a full task table (WS3.5).
+    """
+    if isinstance(pattern, dict):
+        return {"cmd": "placement", "tasks": dict(pattern)}
     if pattern not in PATTERN_NAMES:
         raise PlanError(f"placement must be one of {', '.join(PATTERN_NAMES)}")
     return {"cmd": "placement", "pattern": pattern}
+
+
+def tasks_for(plan):
+    """Per-stage table to prefill the editor for a plan (WS3.5)."""
+    if plan.placement == "custom" and plan.placement_tasks:
+        return dict(plan.placement_tasks)
+    return preset_tasks(plan.placement)
+
+
+def preset_tasks(name):
+    """Task table for a preset name (all-Cloud for ``legacy``)."""
+    table = pattern_table(name) if str(name).lower() != "legacy" else None
+    if table:
+        return dict(table)
+    return {stage: "X" for stage in TASK_ROWS if stage != "L"} | {"L": "X"}
+
+
+def stage_title(task):
+    """Short label for a task row, e.g. ``A simulation``."""
+    from common.placement import STAGE_LABELS
+    label = STAGE_LABELS.get(task, "leaderboard")
+    return f"{task} {label}"
+
+
+def chain_summary(tasks):
+    """Cost label for the panel: crossings, channel kinds, stream tier."""
+    if not tasks:
+        return "legacy whole-pipeline (no placement)"
+    chain = resolve_chain(tasks)
+    parts = [f"{len(chain['crossings'])} crossing(s)"]
+    kinds = sorted({item["kind"] for item in chain["crossings"]})
+    if kinds:
+        parts.append("/".join(kinds))
+    parts.append(f"stream from {chain['stream_tier']}")
+    if chain["pixel_channel"]:
+        parts.append("pixels channel (D≠E)")
+    return " · ".join(parts)
+
+
+def chain_description(tasks):
+    return describe_chain(tasks) if tasks else describe_placement({})
 
 
 

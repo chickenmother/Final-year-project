@@ -187,12 +187,13 @@ class PanelApp:
         left = ttk.Frame(body)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         left.columnconfigure(0, weight=1)
-        left.rowconfigure(1, weight=1)
+        left.rowconfigure(2, weight=1)
         right = ttk.Frame(body)
         right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(0, weight=1)
         right.rowconfigure(2, weight=1)
         self._build_plan_frame(left)
+        self._build_tasks_frame(left)
         self._build_events_frame(left)
         self._build_timeline_frame(left)
         self._build_run_frame(right)
@@ -255,7 +256,9 @@ class PanelApp:
         field(3, 0, "Mode", "mode", MODES)
         field(3, 2, "Video preset", "video_preset", VIDEO_PRESETS)
         field(4, 0, "Input", "input_pattern", INPUT_PATTERNS)
-        field(4, 2, "Placement", "placement", PLACEMENTS)
+        self.placement_combo = field(4, 2, "Placement", "placement", PLACEMENTS)
+        self.placement_combo.bind("<<ComboboxSelected>>",
+                                  self.on_placement_preset)
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=5, column=0, columnspan=4, sticky="ew", pady=(4, 0))
@@ -282,6 +285,74 @@ class PanelApp:
         self.plan_picker.pack(side="right")
         self.plan_picker.bind("<<ComboboxSelected>>", self.on_pick_plan)
         ttk.Label(buttons, text="bundled:").pack(side="right", padx=(0, 4))
+
+    def _build_tasks_frame(self, parent):
+        """WS3.5: per-stage placement rows (A-E + L) with a cost label."""
+        frame = ttk.LabelFrame(parent, text="Task placement (X / Y)", padding=6)
+        frame.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        for column in range(4):
+            frame.columnconfigure(column, weight=1)
+        self.task_vars = {}
+        self.task_combos = {}
+        for index, task in enumerate(pm.TASK_ROWS):
+            row, column = divmod(index, 3)
+            title = pm.stage_title(task)
+            ttk.Label(frame, text=title).grid(row=row, column=column * 2,
+                                              sticky="w", padx=(0, 4), pady=1)
+            var = tk.StringVar(value="X")
+            combo = ttk.Combobox(frame, textvariable=var, width=5,
+                                 values=pm.TIER_CHOICES, state="normal")
+            if task == "L":
+                combo.configure(state="disabled")   # pinned to X by design
+            combo.grid(row=row, column=column * 2 + 1, sticky="w",
+                       padx=(0, 10), pady=1)
+            combo.bind("<<ComboboxSelected>>", self.on_task_changed)
+            self.task_vars[task] = var
+            self.task_combos[task] = combo
+        ttk.Label(frame, text="U → Z (fixed)", foreground="#666").grid(
+            row=2, column=0, columnspan=2, sticky="w")
+        self.chain_var = tk.StringVar(value="0 crossing(s) · stream from X")
+        ttk.Label(frame, textvariable=self.chain_var,
+                  foreground="#375").grid(row=2, column=2, columnspan=4,
+                                          sticky="w")
+
+    def _tasks_from_form(self):
+        return {task: var.get().strip().upper() or "X"
+                for task, var in self.task_vars.items()}
+
+    def _set_task_vars(self, tasks):
+        for task, var in self.task_vars.items():
+            if task in tasks:
+                var.set(str(tasks[task]).upper())
+        self._update_chain_label()
+
+    def _update_chain_label(self):
+        tasks = self._tasks_from_form()
+        self.chain_var.set(pm.chain_summary(tasks))
+
+    def _custom_selected(self):
+        return self.form_vars["placement"].get().strip().lower() == "custom"
+
+    def on_task_changed(self, _event=None):
+        self._update_chain_label()
+        if not self._custom_selected():
+            # touching a row means the user wants the custom table
+            self.form_vars["placement"].set("custom")
+        self._refresh_task_states()
+
+    def on_placement_preset(self, _event=None):
+        preset = self.form_vars["placement"].get().strip().lower()
+        if preset != "custom":
+            self._set_task_vars(pm.preset_tasks(preset))
+        self._refresh_task_states()
+
+    def _refresh_task_states(self):
+        editable = self._custom_selected() and pm.buttons(pm.phase(self.state))["edit"]
+        for task, combo in self.task_combos.items():
+            if task == "L":
+                combo.configure(state="disabled")   # pinned to X
+            else:
+                combo.configure(state="normal" if editable else "disabled")
 
     def _build_events_frame(self, parent):
         frame = ttk.LabelFrame(parent, text="Timeline events", padding=6)
@@ -432,6 +503,8 @@ class PanelApp:
             text = f"{float(value):g}" if key in ("warmup_s",
                                                   "duration_s") else str(value)
             self.form_vars[key].set(text)
+        self._set_task_vars(pm.tasks_for(plan))
+        self._refresh_task_states()
 
     def _form_fields(self):
         return {key: var.get() for key, var in self.form_vars.items()}
@@ -445,13 +518,15 @@ class PanelApp:
         """Validate the form and make it the active plan (``None`` on error)."""
         try:
             plan = pm.build_plan(self._form_fields(),
-                                 self.plan.to_dict()["events"])
+                                 self.plan.to_dict()["events"],
+                                 self._tasks_from_form())
         except PlanError as exc:
             return self._plan_error(exc)
         self.plan = plan
         self._load_plan_into_form(plan)
         self._refresh_plan_views()
-        self.status_var.set(f"plan applied: {plan.name}")
+        self.status_var.set(f"plan applied: {plan.name} "
+                            f"[{pm.chain_summary(self._tasks_from_form())}]")
         return plan
 
     def on_pick_plan(self, _event=None):
@@ -516,10 +591,11 @@ class PanelApp:
         self._send(payload, f"apply video {preset} to X")
 
     def on_apply_placement(self):
-        """Switch Y's router placement without starting a run (WS3.1)."""
-        pattern = self.form_vars["placement"].get()
+        """Switch Y's router placement without starting a run (WS3.1/WS3.5)."""
+        pattern = self.form_vars["placement"].get().strip().lower()
+        target = (self._tasks_from_form() if pattern == "custom" else pattern)
         try:
-            payload = pm.placement_payload(pattern)
+            payload = pm.placement_payload(target)
         except PlanError as exc:
             return self._plan_error(exc)
         self._send(payload, f"placement {pattern}")
@@ -574,6 +650,8 @@ class PanelApp:
             widget = self.controls.get(key)
             if widget is not None:
                 widget.configure(state="normal" if state["edit"] else "disabled")
+        if hasattr(self, "task_combos"):
+            self._refresh_task_states()
 
     # -- Y link and run controls -------------------------------------
 

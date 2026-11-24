@@ -39,6 +39,46 @@ class PlanEditingTests(unittest.TestCase):
         self.assertEqual(len(updated.events), 1)
         self.assertEqual(plan.name, "WS2.2 panel run")   # original untouched
 
+    def test_build_plan_carries_a_custom_table(self):
+        fields = {"name": "split", "placement": "custom"}
+        tasks = {"A": "X", "B": "Y", "C": "Y", "D": "Y", "E": "Y", "L": "X"}
+        plan = pm.build_plan(fields, (), tasks)
+        self.assertEqual(plan.placement, "custom")
+        self.assertEqual(plan.placement_tasks, tasks)
+        # a preset ignores the rows, so the plan stays preset-shaped
+        preset = pm.build_plan({"placement": "all_cloud"}, (), tasks)
+        self.assertEqual(preset.placement, "all_cloud")
+        self.assertEqual(preset.placement_tasks, {})
+
+    def test_update_plan_keeps_the_custom_table(self):
+        tasks = {"A": "Y", "B": "Y", "C": "X", "D": "X", "E": "X", "L": "X"}
+        plan = pm.build_plan({"name": "chain", "placement": "custom"}, (), tasks)
+        updated = pm.update_plan(plan, {"duration_s": 45})
+        self.assertEqual(updated.placement_tasks, tasks)
+        self.assertEqual(updated.duration_s, 45.0)
+
+    def test_preset_tasks_and_tasks_for(self):
+        self.assertEqual(pm.preset_tasks("offload_ab")["A"], "Y")
+        self.assertEqual(pm.preset_tasks("legacy")["A"], "X")
+        self.assertEqual(pm.preset_tasks("legacy")["L"], "X")
+        plan = pm.blank_plan()
+        self.assertEqual(pm.tasks_for(plan), pm.preset_tasks("legacy"))
+        tasks = {"A": "Y", "B": "Y", "C": "Y", "D": "Y", "E": "Y", "L": "X"}
+        custom = pm.build_plan({"placement": "custom"}, (), tasks)
+        self.assertEqual(pm.tasks_for(custom), tasks)
+
+    def test_chain_summary_and_titles(self):
+        self.assertIn("legacy", pm.chain_summary({}))
+        summary = pm.chain_summary(pm.preset_tasks("offload_ab"))
+        self.assertIn("1 crossing", summary)
+        self.assertIn("state", summary)
+        self.assertIn("stream from X", summary)
+        split = dict(pm.preset_tasks("all_cloud"), E="Y")
+        self.assertIn("pixels channel", pm.chain_summary(split))
+        self.assertEqual(pm.stage_title("A"), "A simulation")
+        self.assertEqual(pm.stage_title("L"), "L leaderboard")
+        self.assertEqual(pm.TASK_ROWS, ("A", "B", "C", "D", "E", "L"))
+
     def test_plan_text_round_trip(self):
         plan = pm.add_event(pm.blank_plan(), 5, "pause", hold_s=2)
         again = pm.plan_from_text(pm.plan_text(plan))
