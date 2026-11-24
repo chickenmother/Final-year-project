@@ -2,8 +2,9 @@
 
 Status: **WS2.1 implemented** (`1c20dce`), **WS2.2 implemented**
 (`tools/test_panel.py`), **WS2.3 implemented** (X runtime `video`/`stats`/`stop`),
-**WS3.1 implemented** (task router + All Cloud) and **WS3.2 implemented**
-(Offload A/B with the A+B/C split and the state upload).
+**WS3.1 implemented** (task router + All Cloud), **WS3.2 implemented**
+(Offload A/B with the A+B/C split and the state upload) and **WS3.3 implemented**
+(All Edge: X idle, L only).
 This document is the protocol/report reference; the README has the short
 version.
 
@@ -60,7 +61,7 @@ A plan is plain JSON. The full example lives in
 |---|---|---|
 | `workload` | `light`, `medium`, `heavy` | game profile (bots/obstacles/bullets) |
 | `mode` (legacy) | `auto`, `cloud`, `edge` | Y whole-pipeline: RTT auto-switch, force X, force Y |
-| `placement` | `legacy`, `all_cloud`, `offload_ab`, `all_edge` | WS3.1/WS3.2 task table (All Cloud and Offload A/B live; All Edge waits for WS3.3) |
+| `placement` | `legacy`, `all_cloud`, `offload_ab`, `all_edge` | WS3.1–WS3.3 task table (all three patterns live) |
 | `video_preset` | `current`, `A0`, `A1`, `A2`, `intra` | recorded in WS2.1; applied to X at runtime (WS2.3) |
 | `input_pattern` | `idle`, `strafe`, `circle`, `figure8`, `shoot` | deterministic Z input |
 | `warmup_s` | 0–60 | excluded from the measurement |
@@ -268,9 +269,8 @@ Caveats:
 - Validation: `L` is pinned to X and a table that moves it is rejected; `U` is
   local to Z and cannot appear in a table; unknown tasks/tiers are rejected.
 - X confirms with `placement_ok` (Y stores `state["x_placement"]` and
-  `placement_applied: true`) or an `error`. X accepts a table when it owns
-  C, D, E and either all of A/B (All Cloud) or neither (Offload A/B);
-  All Edge is still rejected until WS3.3.
+  `placement_applied: true`) or an `error`. X accepts C/D/E with all-or-neither
+  of A/B, and the All Edge table (L only).
 - Per-task metrics: Y times `sim` (A+B) and `hit` (C) plus its fallback
   `render`/`encode`, and merges X's `sim_p50`/`hit_p50`/`render_p50`/
   `encode_p50` plus the X↔Y and Z↔Y hops into `state["task_stats"]`, e.g.
@@ -310,6 +310,21 @@ ticks of medium workload, plus a remote-C tick-for-tick comparison).
 - C runs on **both** tiers (X applies it from the upload, Y applies it locally to
   stay authoritative); the duplication is deliberate and needed for the
   pre-placed fallback copy.
+
+## WS3.3 — All Edge
+
+`placement: all_edge` puts A–E on Y and leaves only **L** on X.
+
+- Y sends the All Edge table; X replies `placement_ok` with `{L: X}`, clears its
+  queues, stops streaming and stays idle (`edge_mode`) — a later `start` does
+  not wake it.
+- Y sends neither `start` nor `in` to X, so there is no frame traffic and no
+  state upload (`environment.offload` stays zero).
+- Rendering is pinned to Y by `render_tier()`, so Y's fallback encoder streams
+  to Z. `FYP_Y_STREAM_EVERY=1` gives 60 fps (default 2 gives 30).
+- Y owns the `game_over` event in this pattern and broadcasts it to Z.
+- The plan's `video_preset` is inert here: WS2.3's runtime `video` command only
+  controls X, and X is idle. Y's encoder is fixed by `FYP_Y_*` at startup.
 
 ## Environment
 

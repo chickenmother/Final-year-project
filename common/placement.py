@@ -97,6 +97,16 @@ def remote_ab(tasks):
     return bool(tasks) and (tasks.get("A") == "Y" and tasks.get("B") == "Y")
 
 
+def edge_pipeline(tasks):
+    """True when Y owns the whole A-E pipeline (All Edge, WS3.3).
+
+    Then X has nothing to step or stream: it only keeps L, and Y renders and
+    encodes for Z itself.
+    """
+    return bool(tasks) and all(tasks.get(task) == "Y"
+                               for task in ("A", "B", "C", "D", "E"))
+
+
 def describe(tasks):
     """Human-readable summary for the panel/status line."""
     if not tasks:

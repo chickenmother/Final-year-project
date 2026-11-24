@@ -10,6 +10,7 @@ from common.placement import (
     PlacementError,
     TaskStats,
     describe as describe_placement,
+    edge_pipeline,
     merge_metrics,
     pattern_table,
     remote_ab as placement_remote_ab,
@@ -34,7 +35,7 @@ state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
          "z_stats": {}, "x_stats": {}, "x_video": {}, "x_fps": 0.0, "y_fps": 0.0,
          "placement": {}, "placement_pattern": "legacy", "placement_applied": False,
          "x_placement": {}, "task_stats": {}, "offload": {}, "remote_ab": False,
-         "reports": []}
+         "edge_only": False, "reports": []}
 inp = {"keys": "", "seq": 0, "latch": False}
 zs = {}                # Z connection -> frame queue + capability slot
 last_fwd, bad, good_since = 0, 0, None
@@ -51,6 +52,7 @@ test_runner = None
 task_stats = TaskStats()               # per-task timings measured on Y (WS3.1)
 offload = {"n": 0, "bytes": 0, "kb_s": 0.0, "total": 0}   # WS3.2 state upload
 offload_window = collections.deque()   # (t, bytes) over the last second
+edge_over_sent = False                 # WS3.3: Y owns the game-over event
 
 
 def count_offload(nbytes):
@@ -268,7 +270,7 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
 
 
 async def tick_loop():
-    global y_encoder, paused, y_force_key
+    global y_encoder, paused, y_force_key, edge_over_sent
     nxt = time.monotonic()
     while True:
         nxt += TICK
@@ -307,7 +309,19 @@ async def tick_loop():
             "tick": game.tick,
             "workload": game.workload.name,
         }
-        up.put(json.dumps({"t": "in", "tick": game.tick, "keys": keys, "seq": seq}))
+        if state.get("edge_only"):
+            # All Edge: X owns only L, so there is no frame pipeline to feed.
+            if game.game_over and not edge_over_sent:
+                edge_over_sent = True
+                state["playing"] = False
+                broadcast(json.dumps({"t": "game_over", "score": game.score,
+                                      "deaths": game.deaths}), keyframe=True)
+                print(f"game over (edge): score={game.score}")
+                if test_runner is not None:
+                    test_runner.on_game_over()
+        else:
+            up.put(json.dumps({"t": "in", "tick": game.tick, "keys": keys,
+                               "seq": seq}))
         if state["mode"] == "Y" and game.tick % C.Y_STREAM_EVERY == 0:
             if y_encoder is not None and all_h264():
                 try:
@@ -416,6 +430,16 @@ class TestRunner:
         self.video_requested = None      # WS2.3: presets sent to Cloud X
         self.video_applied = None        # ... and what X confirmed
 
+    def _mode_override(self):
+        """Render tier: the placement's D tier when it is not legacy (WS3.1)."""
+        plan = self.plan
+        if plan is None:
+            return None
+        table = plan.placement_table()
+        if table is not None and plan.mode == "auto":
+            return render_tier(table)
+        return plan.mode_override()
+
     # -- status ---------------------------------------------------------
     def _elapsed(self):
         if self.measure_start is None:
@@ -496,9 +520,10 @@ class TestRunner:
         self.report_id = report_mod.new_id()
         paused = False
         offload_window.clear()
-        offload["total"] = 0
+        offload.update(n=0, bytes=0, kb_s=0.0, total=0)
+        state["offload"] = dict(offload)
         state["paused"] = False
-        state["mode_override"] = plan.mode_override()
+        state["mode_override"] = self._mode_override()
         set_delay(0)
         update_mode()
         send_stream()
@@ -520,7 +545,10 @@ class TestRunner:
         state["placement"] = table or {}
         state["placement_pattern"] = plan.placement
         state["placement_applied"] = False
-        state["remote_ab"] = placement_remote_ab(table)
+        state["edge_only"] = edge_pipeline(table)
+        # A/B on Y alone does not mean "ship the state up": with the whole
+        # pipeline on Y (All Edge) X is idle, so there is nothing to upload.
+        state["remote_ab"] = placement_remote_ab(table) and not state["edge_only"]
         if table is None:
             print(f"[{time.strftime('%X')}] test: placement legacy "
                   f"(whole-pipeline)")
@@ -565,7 +593,7 @@ class TestRunner:
         self.phase = "warmup"
         self.started_mono = now
         self.last_sample = 0.0
-        state["mode_override"] = self.plan.mode_override()
+        state["mode_override"] = self._mode_override()
         update_mode()                  # re-apply a forced cloud/edge mode after start
         send_stream()
         state["test"] = self.snapshot()
@@ -813,7 +841,7 @@ class TestRunner:
 
 
 async def z_handler(ws):
-    global game, last_fwd, bad, good_since, paused, y_force_key
+    global game, last_fwd, bad, good_since, paused, y_force_key, edge_over_sent
     slot = {"queue": collections.deque(), "ev": asyncio.Event(),
             "h264": False, "ctl": collections.deque()}
     lock = asyncio.Lock()
@@ -856,13 +884,21 @@ async def z_handler(ws):
                     y_encoder.force_keyframe()
                 for slot in zs.values():
                     slot["queue"].clear()
-                state.update(tick=0, mode="X", e2e=0.0, rtt_zy=0.0, lag=0, playing=True)
+                state.update(tick=0, mode="X", e2e=0.0, rtt_zy=0.0, lag=0,
+                             playing=True)
                 inp.update(keys="", seq=0, latch=False)
                 last_fwd, bad, good_since = 0, 0, None
                 y_force_key = False
-                send_stream()               # a new game starts on the cloud tier
-                up.put(json.dumps({"t": "start", "workload": workload, "seed": seed,
-                                   "config": game.config}))
+                edge_over_sent = False
+                if state.get("edge_only"):
+                    # All Edge: X owns only L, so it gets neither start nor input.
+                    send_stream()
+                    print(f"[{time.strftime('%X')}] game start (edge only): "
+                          f"X is idle, Y renders")
+                else:
+                    send_stream()           # a new game starts on the cloud tier
+                    up.put(json.dumps({"t": "start", "workload": workload,
+                                       "seed": seed, "config": game.config}))
                 print(f"[{time.strftime('%X')}] game start requested: "
                       f"workload={workload} seed={seed} "
                       f"hp={game.player.max_hp} bots={game.workload.bots} "
@@ -957,7 +993,9 @@ async def dash_handler(ws):
                         state["placement_pattern"] = name
                     state["placement"] = table or {}
                     state["placement_applied"] = False
-                    state["remote_ab"] = placement_remote_ab(table)
+                    state["edge_only"] = edge_pipeline(table)
+                    state["remote_ab"] = (placement_remote_ab(table)
+                                          and not state["edge_only"])
                     if table is None:
                         print(f"[{time.strftime('%X')}] placement: legacy "
                               f"whole-pipeline")

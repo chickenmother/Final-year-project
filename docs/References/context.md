@@ -20,11 +20,12 @@ Only one Y and one Z at a time. Placement is not fixed; I test combinations.
 
 - WS2.1 test runner/CLI shipped; WS2.2 Tk control panel shipped (`tools/test_panel.py` +
   `tools/panel_model.py`); WS2.3 X runtime `video`/`stats`/`stop` shipped (`common/xstats.py`);
-  WS3.1 task router + All Cloud shipped (`common/placement.py`).
-  WS1.1 (video presets A0/A1/A2) archived under `logs/raw`.
-- Lab X pulled to `cda0f52` (WS1.2) and needs a pull for WS2.3/WS3.1; those E2Es used a local X.
+  WS3.1 All Cloud, WS3.2 Offload A/B and WS3.3 All Edge shipped (`common/placement.py`,
+  `game/simulation.py` A+B/C split). WS1.1 (video presets A0/A1/A2) archived under `logs/raw`.
+- Lab X pulled to `cda0f52` (WS1.2) and needs a pull for WS2.3/WS3.x; those E2Es used a local X.
   No X/Y/Z left running (the E2E tiers were stopped). One Y and one Z at a time.
 - WS1.3 complete: `20261123-153034`. WS2.2: `20261123-161423`. WS2.3: `20261123-164025`.
-  WS3.1: `20261124-111232` (All Cloud applied; sim X/Y 0.02 ms, render X 0.46, encode X 5.21,
-  net X 2.55 / Z 3.5 ms, e2e p50 12.6 ms). Next: WS3.2 Offload A/B.
+  WS3.1: `20261124-111232`. WS3.2: `20261124-115317` (536 KB/s upload). WS3.3: `20261124-120713`
+  (X idle, Y 60 fps). Matched medium comparison: All Cloud `20261124-120640` e2e p50 14.85,
+  Offload 15.70, All Edge 13.10 on one PC. Next: WS3.4 L + leaderboard view.
   Roadmap/schedule: `docs/References/roadmap.md`.

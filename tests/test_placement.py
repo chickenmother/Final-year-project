@@ -6,6 +6,7 @@ from common.placement import (
     PlacementError,
     TaskStats,
     describe,
+    edge_pipeline,
     merge_metrics,
     owners,
     pattern_table,
@@ -92,6 +93,12 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(remote_ab(pattern_table("offload_ab")))
         self.assertTrue(remote_ab(pattern_table("all_edge")))
         self.assertFalse(remote_ab({}))
+
+    def test_edge_pipeline_only_when_all_edge(self):
+        self.assertFalse(edge_pipeline(pattern_table("all_cloud")))
+        self.assertFalse(edge_pipeline(pattern_table("offload_ab")))
+        self.assertTrue(edge_pipeline(pattern_table("all_edge")))
+        self.assertFalse(edge_pipeline({}))
 
 
 class TaskStatsTests(unittest.TestCase):

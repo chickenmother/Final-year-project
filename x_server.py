@@ -3,7 +3,12 @@ import asyncio, collections, csv, json, os, struct, time
 from websockets.asyncio.server import serve
 from common import config as C
 from common.net import lan_ip, quiet_handshake_errors
-from common.placement import PlacementError, TASKS, validate as validate_placement
+from common.placement import (
+    PlacementError,
+    TASKS,
+    edge_pipeline,
+    validate as validate_placement,
+)
 from common.win import hires_timer
 from common.xstats import FrameStats
 hires_timer()
@@ -88,6 +93,7 @@ async def handler(ws):
     paused, playing = False, False
     stats_on = False
     remote_ab = False
+    edge_mode = False
     print(f"Y connected from {ws.remote_address}")
     lock = asyncio.Lock()
 
@@ -212,17 +218,27 @@ async def handler(ws):
                 missing = [task for task in ("C", "D", "E") if task not in owned]
                 ab_on_y = table.get("A") == "Y" and table.get("B") == "Y"
                 ab_on_x = "A" in owned and "B" in owned
-                if missing or not (ab_on_y or ab_on_x):
+                edge_only = edge_pipeline(table)
+                if not edge_only and (missing or not (ab_on_y or ab_on_x)):
                     await send(json.dumps({
                         "t": "error", "command": "placement",
                         "message": ("X needs C, D, E and either all of A/B or "
-                                    "neither (WS3.2/WS3.3): "
-                                    f"{', '.join(missing) or 'A/B split'}")}))
+                                    "neither, or the whole A-E pipeline on Y "
+                                    f"(All Edge): {', '.join(missing) or 'A/B split'}"
+                                    )}))
                     continue
                 placement_owner = owned
-                remote_ab = ab_on_y
+                remote_ab = ab_on_y and not edge_only
+                edge_mode = edge_only
+                if edge_only:
+                    # WS3.3: X keeps only L; stop stepping/streaming.
+                    playing = paused = streaming = False
+                    out["queue"].clear()
+                    out["jpeg"] = None
+                    stats.reset()
                 print(f"[{time.strftime('%X')}] X placement: tasks {owned}" +
-                      (" (A/B from Y state)" if remote_ab else ""))
+                      (" (All Edge: X idle, L only)" if edge_only
+                       else " (A/B from Y state)" if remote_ab else ""))
                 await send(json.dumps({"t": "placement_ok",
                                        "tasks": {task: "X" for task in owned}}))
             elif t == "start":
@@ -235,7 +251,9 @@ async def handler(ws):
                     game = Game(m.get("workload", "light"),
                                 seed=int(m.get("seed", 12345)))
                 resync, game_over_sent = False, False
-                paused, playing = False, True
+                # WS3.3: an All Edge placement leaves X with L only, so a
+                # start must not wake the renderer again.
+                paused, playing = False, not edge_mode
                 force_key = True
                 out["queue"].clear()
                 out["jpeg"] = None

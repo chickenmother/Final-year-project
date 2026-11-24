@@ -21,7 +21,7 @@ py -3.13 -m venv venv
 - Panel logic tests: `tests/test_panel_model.py`; Tk build/close: `tests/test_panel_smoke.py`.
 - Runtime X preset (WS2.3): panel **Apply video to X**, or the Y dashboard message
   `{"cmd":"x_video","preset":"A1"}` (`A0`/`A1`/`A2`/`intra`).
-- Task placement (WS3.1/WS3.2): panel **Apply placement**, or `{"cmd":"placement","pattern":"all_cloud"}`
-  (`legacy`/`all_cloud`/`offload_ab`/`all_edge`). Bundled plans: `ws3_1_all_cloud.json` and
-  `ws3_2_offload_ab.json` in `tools/plans/`
-  (`.\venv\Scripts\python.exe tools\test_cli.py --plan tools\plans\ws3_2_offload_ab.json`).
+- Task placement (WS3.1–WS3.3): panel **Apply placement**, or `{"cmd":"placement","pattern":"all_cloud"}`
+  (`legacy`/`all_cloud`/`offload_ab`/`all_edge`). Bundled plans: `ws3_1_all_cloud.json`,
+  `ws3_2_offload_ab.json`, `ws3_3_all_edge.json` in `tools/plans/`
+  (`.\venv\Scripts\python.exe tools\test_cli.py --plan tools\plans\ws3_3_all_edge.json`).

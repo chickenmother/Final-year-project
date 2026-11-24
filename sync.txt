@@ -941,5 +941,23 @@ HEAD   : 3da4cad  "WS3.2: Offload A/B (A+B on Y, C-E/L on X) with state upload m
   - Lab X still at cda0f52.
   - Next: WS3.3 All Edge (C/D/E on Y, L on X).
 
+[2026-11-24 12:10 +09:00 | from Y / home PC — WS3.3 All Edge shipped + pattern comparison]
+  - edge_pipeline()/edge_only: Y owns A-E, X keeps L only. X accepts the table, clears its
+    queues, stops streaming and stays idle even on a later start (edge_mode). Y sends neither
+    start nor in, so there is no frame traffic and no state upload.
+  - Y detects game_over itself in this pattern and broadcasts it to Z.
+  - Fixed: start()/on_game_start now derive the render pin from the placement (_mode_override);
+    previously the pin was overwritten and All Edge silently ran on X with no frames.
+  - Fixed: remote_ab was true for all_edge (A/B on Y) and uploaded state to an idle X; now
+    remote_ab = A/B on Y and not edge_only, and the offload counters reset per run.
+  - Matched medium/12 s comparison on one PC: All Cloud 20261124-120640 e2e p50 14.85
+    (X render 0.70, encode 5.83); Offload A/B 20261124-115317 15.70 (536 KB/s upload);
+    All Edge 20261124-120713 13.10 (Y 60 fps, render 1.68, encode 3.06). Localhost RTT is ~0,
+    so this measures pipeline depth; the WAN comparison is WS4.2.
+  - Validation: 99 tests, selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
+    All tiers stopped after the runs (0 python processes).
+  - Lab X still at cda0f52.
+  - Next: WS3.4 (L SQLite on X, leaderboard view on Z, then the WS4.2 report).
+
 END OF SYNC
 

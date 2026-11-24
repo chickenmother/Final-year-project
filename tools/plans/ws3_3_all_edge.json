@@ -1,0 +1,12 @@
+{
+  "name": "WS3.3 All Edge",
+  "warmup_s": 5,
+  "duration_s": 60,
+  "seed": 12345,
+  "workload": "medium",
+  "mode": "auto",
+  "video_preset": "current",
+  "placement": "all_edge",
+  "input_pattern": "strafe",
+  "events": []
+}
