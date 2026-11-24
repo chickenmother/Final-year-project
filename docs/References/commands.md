@@ -25,3 +25,6 @@ py -3.13 -m venv venv
   (`legacy`/`all_cloud`/`offload_ab`/`all_edge`). Bundled plans: `ws3_1_all_cloud.json`,
   `ws3_2_offload_ab.json`, `ws3_3_all_edge.json` in `tools/plans/`
   (`.\venv\Scripts\python.exe tools\test_cli.py --plan tools\plans\ws3_3_all_edge.json`).
+- Comparison (WS4.2): `.\venv\Scripts\python.exe tools\compare_reports.py --workload medium`
+  (add `--out logs\reports\comparison.md --csv logs\reports\comparison.csv`; `--ids` for explicit
+  reports).

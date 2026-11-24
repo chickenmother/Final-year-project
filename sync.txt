@@ -992,5 +992,18 @@ HEAD   : 224cb18  "WS3.4: L (SQLite on X) + U leaderboard view on Z"
   - 107 tests, selftest hash unchanged; tiers stopped afterwards.
   - Operator note: run X/Y/Z from dev (or merge dev -> main); main has no WS3.x code yet.
 
+[2026-11-24 13:30 +09:00 | from Y / home PC — WS4.2 comparison tooling]
+  - New common/compare.py (summarise/pick/add_deltas/markdown/csv_text) and
+    tools/compare_reports.py (--reports/--ids/--placement/--workload/--baseline/--out/--csv/--json).
+  - Picks the newest report per placement (optionally filtered by workload), sorts All Cloud ->
+    Offload A/B -> All Edge, adds e2e deltas vs the baseline, shows the rendering/encoding tier,
+    per-task p50s and the Offload A/B upload. 9 tests (tests/test_compare.py, 116 total).
+  - Generated the local table (logs/reports/comparison_local.md/.csv, git-ignored):
+    all_cloud 20261124-120640 14.85 ms; offload_ab 20261124-115317 15.70 (+5.7%, 535.9 KB/s);
+    all_edge 20261124-120713 13.10 (-11.8%). Local RTT ~0, so this is pipeline depth only.
+  - Docs: README WS4.2 section + trees + status; commands.md; roadmap (tooling done, WAN pending).
+  - Next: pull the lab X, run the three patterns over the WAN, then
+    tools/compare_reports.py --workload medium --out logs/reports/comparison_wan.md and WS4.3.
+
 END OF SYNC
 

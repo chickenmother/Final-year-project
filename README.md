@@ -9,7 +9,7 @@
 | **Institution** | Kyushu Sangyo University, Department of Information Science |
 | **Programme** | Final Year Project |
 | **Academic Year** | 2025/2026 |
-| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 runner/CLI, WS2.2 Tk panel, WS2.3 X runtime video; **WS3.1 All Cloud, WS3.2 Offload A/B and WS3.3 All Edge shipped** (E2E `20261124-120640` / `20261124-115317` / `20261124-120713`); WS3.4 leaderboard + per-task report next |
+| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 runner/CLI, WS2.2 Tk panel, WS2.3 X runtime video; WS3.1 All Cloud, WS3.2 Offload A/B, WS3.3 All Edge, WS3.4 L+U leaderboard; **WS4.2 comparison tooling shipped** (`tools/compare_reports.py`); remaining: WAN runs + final report |
 
 A final year project modelling a **3-tier vertical cloud gaming architecture** — **End Node (Z) → Middle Edge Gateway (Y) → Cloud Server (X)** — under simulated network latency degradation.
 
@@ -143,6 +143,7 @@ FYP/
 │   ├── config.py                # env-overridable addresses, ports, codecs, thresholds
 │   ├── game.py                  # legacy deterministic core (selftest oracle only)
 │   ├── leaderboard.py           # WS3.4 L: SQLite score store (lives on X)
+│   ├── compare.py               # WS4.2 report comparison logic (tested)
 │   ├── net.py                   # LAN address helper for startup banners
 │   ├── placement.py             # WS3.1 task table, patterns, per-task timings
 │   ├── report.py                # test report JSON/CSV + history
@@ -167,6 +168,7 @@ FYP/
 │   └── dashboard.html           # live mode/RTT/lag/game state + latency slider
 ├── tools/
 │   ├── test_cli.py              # WS2.1 test driver
+│   ├── compare_reports.py       # WS4.2 cross-pattern comparison (md/csv)
 │   ├── test_panel.py            # WS2.2 Tk control panel (Tk + websocket shell)
 │   ├── panel_model.py           # WS2.2 headless panel logic (unit-tested)
 │   ├── autoplay_z.ps1           # immortal config + unattended Z launcher
@@ -187,7 +189,8 @@ FYP/
 │   ├── test_panel_smoke.py      # WS2.2 Tk build + close
 │   ├── test_xstats.py           # WS2.3 rolling encoder stats
 │   ├── test_placement.py        # WS3.1 task table / patterns / timings
-│   └── test_leaderboard.py      # WS3.4 L store
+│   ├── test_leaderboard.py      # WS3.4 L store
+│   └── test_compare.py          # WS4.2 comparison logic
 ├── docs/
 │   ├── test-panel.md            # test protocol, reports, panel guide
 │   ├── notes/
@@ -589,22 +592,6 @@ no stream) and does no work for the frame path. There is **no state upload**.
   by `FYP_Y_*` at startup (`FYP_Y_STREAM_EVERY=1` gives 60 fps instead of the 30 fps default).
 - Reproducible plan: `tools/plans/ws3_3_all_edge.json` (medium, 5+60 s).
 
-### Cross-pattern comparison (localhost, medium)
-
-Same PC, medium workload, 2 s warm-up + 12 s, A1 where it applies. This measures **pipeline
-depth**, not the WAN effect (RTT ≈ 0 here); the real comparison runs on the three machines (WS4.2).
-
-| Pattern | e2e p50 | p90 | X / Y / Z fps | render p50 | encode p50 | upload |
-|---|---|---|---|---|---|---|
-| All Cloud (`20261124-120640`) | 14.85 | 16.02 | 60 / 60 / 59.8 | X 0.70 | X 5.83 | — |
-| Offload A/B (`20261124-115317`) | 15.70 | 16.32 | 60 / — / 59.9 | X 0.63 | X 5.65 | 536 KB/s |
-| All Edge (`20261124-120713`) | **13.10** | **14.58** | 0 / 60 / 60 | Y 1.68 | Y 3.06 | — |
-
-On one machine All Edge wins on latency because the frame path is Y→Z (one hop) instead of X→Y→Z,
-but it renders on the weaker node (1.68 ms vs 0.70 ms) and cannot use X's encoder. All Cloud pays
-an extra hop but keeps the fast renderer; Offload A/B keeps X's fast D/E and pays ~9 KB/tick of
-state upload.
-
 ### WS3.4 — L (SQLite on X) and the U leaderboard view (implemented)
 
 **L** is a small SQLite table in `common/leaderboard.py`, opened by X at
@@ -626,6 +613,40 @@ state upload.
 - Evidence (local): a direct X submit returned rank 1 and the row, Z's `leaderboard_get` returned
   the same row through Y, and a 1-HP test match (reported as `game over`) added a second row with
   `source: test`. The U screen renders both rows (`%TEMP%\ws34_u.png` during the check).
+
+### WS4.2 — comparison report (tooling implemented)
+
+`tools/compare_reports.py` + `common/compare.py` build the cross-pattern table straight from Y's
+reports: it picks the newest report per placement (optionally filtered by workload), prints
+markdown, and writes `.md`/`.csv`. It adds the Δ against a baseline and shows the tier that
+rendered/encoded, the per-task p50s and the Offload A/B upload.
+
+```powershell
+# newest report per placement, any workload
+.\venv\Scripts\python.exe tools\compare_reports.py
+
+# matched runs, written next to the reports
+.\venv\Scripts\python.exe tools\compare_reports.py --workload medium `
+    --out logs\reports\comparison.md --csv logs\reports\comparison.csv
+
+# explicit reports (e.g. the three WAN runs)
+.\venv\Scripts\python.exe tools\compare_reports.py `
+    --ids 20261124-120640,20261124-115317,20261124-120713 --json
+```
+
+Generated from the matched local runs (medium, 2 s warm-up + 12 s, A1 where it applies). This
+measures **pipeline depth**, not the WAN effect (RTT ≈ 0 here):
+
+| Pattern | Report | e2e p50 | Δ vs baseline | p90 | X / Y / Z fps | render p50 | encode p50 | upload |
+|---|---|---|---|---|---|---|---|---|
+| all_cloud | `20261124-120640` | 14.85 ms | +0.00 ms (+0.0%) | 16.02 ms | 60 / 60 / 60 | X 0.70 / Y 1.55 | X 5.83 / Y 3.20 | — |
+| offload_ab | `20261124-115317` | 15.70 ms | +0.85 ms (+5.7%) | 16.32 ms | 60 / 60 / 60 | X 0.60 | X 5.65 | 535.9 KB/s |
+| all_edge | `20261124-120713` | 13.10 ms | −1.75 ms (−11.8%) | 14.58 ms | 0 / 60 / 60 | Y 1.68 | Y 3.06 | — |
+
+On one machine All Edge wins on latency because the frame path is Y→Z (one hop) instead of X→Y→Z,
+but it renders on the weaker node (1.68 ms vs 0.70 ms) and cannot use X's encoder. All Cloud pays
+an extra hop but keeps the fast renderer; Offload A/B keeps X's fast D/E and pays ~9 KB/tick of
+state upload.
 
 ---
 

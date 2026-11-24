@@ -33,7 +33,7 @@ WS1.3 are committed; the dev/feature/release model is in `docs/References/branch
 | **Done** | WS3.2 | Offload A/B | A/B on Y; C-E/L on X; E2E `20261124-115317`; comparison report | 2 sessions |
 | **Done** | WS3.3 | All Edge + Pinned L | C/D/E on Y; L on X; E2E `20261124-120713` | 2 sessions |
 | **Done** | WS3.4 | L SQLite + U leaderboard view | store on X, submit/top through Y, ranked screen on Z | 2 sessions |
-| **Now** | WS4.2 | Comparison report | FYP-ready WS1.1/WS1.3 and WS3.1-WS3.4 results | 2-3 sessions |
+| **Now** | WS4.2 | Comparison report | tooling done (`tools/compare_reports.py`); WAN runs pending | 2-3 sessions |
 | **Final** | WS4.3 | Docs/archive/final report | README/AGENTS/sync and report complete | ongoing |
 
 Dependencies: WS1.3 is done (report archived) but a repeat is worth doing once the network/RTT is
@@ -56,7 +56,7 @@ Adjust the sequence to the FYP deadline.
   Offload A/B 15.70 (536 KB/s upload), All Edge 13.10 (Y render 1.68 ms, encode 3.06 ms).
 - WS3.4 evidence: direct X submit → rank 1; Z `leaderboard_get` → same row through Y;
   1-HP match → second row with `source: test`; U screen rendered both rows.
-- Validation gate: 107 unit tests, selftest hash `30f043...`, and all test plans load.
+- Validation gate: 116 unit tests, selftest hash `30f043...`, and all test plans load.
 
 ## Current progress
 
@@ -77,7 +77,7 @@ Adjust the sequence to the FYP deadline.
 | WS3.3 All Edge + Pinned L | Done | A-E on Y, X idle (L only), no upload; E2E `20261124-120713` |
 | WS3.4 L/U + metrics | Done | SQLite L on X, submit/top via Y, U screen on Z; 107 tests |
 | WS4.1 Local/lab validation | Ongoing | repeatable runs; duplicate-process hygiene |
-| WS4.2 Comparison report | **Next build** | after WS1.3 and WS3.2/3.3 |
+| WS4.2 Comparison report | Tooling done | `common/compare.py` + `tools/compare_reports.py`; 9 tests; local table generated; WAN runs pending |
 | WS4.3 Docs/archive | Ongoing | this roadmap; README/AGENTS/sync |
 
 ### WS1.1 baseline results (archived)
@@ -94,8 +94,9 @@ first-frame e2e ~13.1 ms, decode ~3.9 ms; intra-refresh max frame ~17 KB.
 ## Next step
 
 1. Keep the WS1.3 `20261123-153034`, WS2.2 `20261123-161423`, WS2.3 `20261123-164025`, WS3.1 `20261124-111232`, WS3.2 `20261124-115317`, WS3.3 `20261124-120713`, comparison `20261124-120640` and game-over `20261124-124706` reports with the archive.
-2. Build WS4.2: the formal comparison report — per-task latency/compute for All Cloud vs Offload A/B vs All Edge, the upload cost, and the leaderboard check, over the real WAN link (pull the lab X first).
-3. WS4.3: fold the results into the README/docs and tag the release.
+2. Run the three patterns over the real WAN (pull the lab X to the current commit first), then
+   `tools/compare_reports.py --workload medium --out logs\reports\comparison_wan.md`.
+3. WS4.3: fold the WAN table into the README/docs and tag the release.
 
 ## Old -> new mapping
 
