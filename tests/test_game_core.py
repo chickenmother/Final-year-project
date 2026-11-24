@@ -218,6 +218,38 @@ class StepSplitTests(unittest.TestCase):
                 self.assertEqual(remote.digest(), local.digest())
         self.assertEqual(remote.digest(), local.digest())
 
+    def test_step_ab_is_step_a_plus_step_b(self):
+        """WS3.5: splitting A and B must not change a single tick."""
+        fused = Game("medium", seed=11)
+        split = Game("medium", seed=11)
+        for i in range(600):
+            keys = self._script(i)
+            fused.step_ab(keys)
+            split.step_a(keys)
+            split.step_b()
+        self.assertEqual(split.digest(), fused.digest())
+        self.assertEqual(split.tick, fused.tick)
+        self.assertEqual(split.contacts, fused.contacts)
+
+    def test_state_crosses_between_a_and_b(self):
+        """A on one tier, B on the other, C back here: same digest."""
+        local = Game("medium", seed=31)
+        remote = Game("medium", seed=5)
+        for i in range(400):
+            keys = self._script(i)
+            local.step_a(keys)
+            remote.restore(json.loads(json.dumps(local.snapshot())),
+                           effects=False)
+            remote.step_b()
+            local.restore(json.loads(json.dumps(remote.snapshot())),
+                          effects=False)
+            local.step_c()
+            remote.step_c()
+            if i % 50 == 0:
+                self.assertEqual(remote.digest(), local.digest())
+        self.assertEqual(remote.digest(), local.digest())
+        self.assertEqual(local.tick, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

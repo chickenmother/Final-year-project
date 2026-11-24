@@ -182,7 +182,16 @@ class Game:
         Pending damage is queued in ``self.contacts`` so :meth:`step_c` can
         apply it here or on the tier that owns C; the queue travels in
         :meth:`snapshot` for the Offload A/B pattern.
+
+        WS3.5 splits this into :meth:`step_a` and :meth:`step_b` so any tier
+        boundary between A and B is expressible; ``step_ab`` is kept as the
+        exact same sequence and the tests assert both paths agree.
         """
+        self.step_a(keys)
+        self.step_b()
+
+    def step_a(self, keys):
+        """A: player input, physics, obstacle contacts and shooting."""
         self.contacts = []
         if self.game_over:
             return
@@ -212,6 +221,11 @@ class Game:
             self._player_shoot()
         self.prev_space = space
 
+    def step_b(self):
+        """B: bot AI steering/shooting and bullet movement."""
+        if self.game_over:
+            return
+        dt = 1.0 / max(1, self.workload.tick_rate)
         for bot in self.bots:
             self._update_bot(bot, dt)
 
