@@ -1,11 +1,11 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-24 11:58 +09:00   (from Y / home PC)
+Last updated : 2026-11-24 12:10 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
-Branch : feature/ws3.2-offload-ab   (from dev; main has PR #1)
-HEAD   : 3da4cad  "WS3.2: Offload A/B (A+B on Y, C-E/L on X) with state upload metrics"
-         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.2 + WS2.3 + WS3.1 + WS3.2 complete)
+Branch : feature/ws3.3-all-edge   (from dev; main has PR #1)
+HEAD   : c192ce9  "WS3.3: All Edge placement (A-E on Y, X idle with L only) + pattern comparison"
+         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.2 + WS2.3 + WS3.1-3 complete)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
