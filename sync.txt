@@ -1,11 +1,11 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-23 16:47 +09:00   (from Y / home PC)
+Last updated : 2026-11-24 11:20 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
-Branch : feature/ws2.3-x-runtime   (branched from the merged dev; main has PR #1)
-HEAD   : 5ebe93a  "WS2.3: X runtime video/stats/stop + panel and report wiring"
-         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.2 + WS2.3 complete)
+Branch : feature/ws3.1-task-router   (from dev @ 271e260; main has PR #1)
+HEAD   : c8fdf02  "WS3.1: task router + All Cloud placement and per-task metrics"
+         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.2 + WS2.3 + WS3.1 complete)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
@@ -889,6 +889,12 @@ HEAD   : 5ebe93a  "WS2.3: X runtime video/stats/stop + panel and report wiring"
   - Validation: 90 tests, selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
   - Lab X still at cda0f52 (needs a pull before the next lab capture).
   - Next: WS3.2 Offload A/B (A/B local on Y, X runs C-E/L).
+
+[2026-11-24 11:20 +09:00 | from Y / home PC — WS3.1 committed/pushed]
+  - Commit c8fdf02 pushed to origin/feature/ws3.1-task-router.
+  - This sync header/entry is a separate follow-up commit; dev then fast-forwards.
+  - Lab X remains at cda0f52; pull it before the next lab capture.
+  - Next: WS3.2 Offload A/B.
 
 END OF SYNC
 
