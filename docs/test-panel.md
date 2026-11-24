@@ -234,6 +234,85 @@ Notes:
 - `video_preset` applies at `test_start` and via **Apply video to X** (WS2.3);
   `placement` applies at `test_start` and via **Apply placement** (WS3.1).
 
+### Panel walkthrough (click by click)
+
+**Before opening it**
+
+1. Start **Cloud X** (`run_x.cmd`, lab PC) and **Middle Y** (`run_y.cmd <X_IP>`, this PC). Wait
+   for `Y ready: … dashboard -> ws://<ip>:8002`.
+2. Start **End Z** in test mode — `$env:FYP_TEST = "1"; .\run_z.cmd <Y_IP>` — or leave it to the
+   panel's **Launch Z (test)** button. Without Z, `Start` fails with
+   *"no End Z is connected"*.
+
+**Open it**
+
+3. `.\run_panel.cmd` (same PC) or `.\run_panel.cmd <Y_IP> [plan.json]`.
+   Top-right should read `connected ws://<ip>:8002`; the status bar says
+   *connected to Y (panel hello accepted)*. If it says `offline`, Y is not up / 8002 is blocked —
+   the panel retries every 2 s (`Connect` / `Disconnect` force it).
+
+**Choose the plan**
+
+4. Pick a bundled plan from the **bundled:** dropdown (it loads as soon as you select), or
+   **Load…** a JSON file, or type the fields yourself and press **Apply**.
+   Fields: name, warm-up, duration, seed, workload, mode (legacy whole-pipeline), video preset,
+   input pattern, placement (task table). The default is a blank 5+60 s light plan.
+5. Timeline events: *at s* + *kind* (`delay`/`mode`/`pattern`/`pause`) + *value* + *hold s* →
+   **Add**; select a row → **Remove**. The **Timeline** panel shows the resulting bars.
+   `delay` = injected X↔Y ms, `mode` = temporary tier override, `pattern` = Z input,
+   `pause` = freeze the clock (paused samples are excluded from the summary).
+6. **Preview** asks Y to validate the plan without starting; **Save as…** writes it under
+   `tools/plans/`. Invalid values pop a *Plan error* dialog and appear in the status bar.
+
+**Optional live controls (work before and during a run)**
+
+7. **Apply video to X** — `A0`/`A1`/`A2`/`intra` rebuilds the X encoder (`current` = leave it).
+   Intra-refresh needs Z started with `FYP_X_INTRA_REFRESH=1`.
+8. **Apply placement** — `legacy`/`all_cloud`/`offload_ab`/`all_edge`. A non-legacy run pins
+   rendering to the pattern's D tier (All Cloud and Offload on X, All Edge on Y). All Edge leaves
+   X idle (L only) and makes the video preset inert.
+
+**Run it**
+
+9. **Start** → Y runs the warm-up, then the measurement. Watch the progress bar, elapsed,
+   *next event* and the live metrics; **Pause** / **Resume** / **Terminate** act immediately
+   (Terminate finalises the report). While a test is active the plan buttons
+   (Apply/Load/Save/Preview/Remove/Launch Z) are disabled; the two Apply-* buttons stay usable.
+10. At the end the status bar shows the report id and the **Reports** table refreshes.
+
+**Reports and Z**
+
+11. Select a report → **Open JSON** (viewer window, with its own *Export CSV…*) or
+    **Export CSV** (choose where to save). **Refresh** re-reads Y's list.
+12. **Focus Z** brings the pygame window forward; **Browser dashboard** opens
+    `web/dashboard.html?ip=<Y_IP>` for the live RTT/tier view in a browser.
+
+**Reading the metrics**
+
+| Metric | Meaning |
+|---|---|
+| active tier | X = cloud renders, Y = edge fallback |
+| RTT X↔Y / Z↔Y | measured hops; `injected ms` is what the delay events add |
+| input→display | Z's e2e for the last input (p50 in the report) |
+| X fps / Y fps / Z fps | frames per second on each hop |
+| X encode p50 / p95 | X's frame work (render+encode), p95 shows the spikes |
+| X keyframes/s, frame KB | keyframe storms and the average frame size |
+| X video | the encoder settings X confirmed |
+| placement | the task table Y applied (`applied`/rejected) |
+| sim / hit / render / encode p50 | per-task compute per tier (A+B, C, D, E) |
+| offload | All Edge = —, Offload A/B = state upload KB/s |
+| Z decode | Z's H.264 decode time |
+
+**Common problems**
+
+| Symptom | Fix |
+|---|---|
+| `offline` in the top right | Y not running or 8002 blocked; start Y, press Connect |
+| *not connected to Y* when pressing Start | same as above — the panel only talks to Y |
+| *no End Z is connected* | start Z with `FYP_TEST=1` (or **Launch Z (test)**) |
+| Start stays greyed | a test is already active — Pause/Terminate first |
+| Leaderboard says Y closed the link | Y is older than `bd9a1f5`; pull `dev` and restart |
+
 ## WS2.3 — X runtime video/stats/stop
 
 Implemented in `x_server.py` (+ `common/xstats.py` for the rolling numbers):

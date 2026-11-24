@@ -1005,5 +1005,12 @@ HEAD   : 2017b69  "WS4.2: cross-pattern comparison tool (markdown/CSV from repor
   - Next: pull the lab X, run the three patterns over the WAN, then
     tools/compare_reports.py --workload medium --out logs/reports/comparison_wan.md and WS4.3.
 
+[2026-11-24 13:40 +09:00 | from Y / home PC — panel usage guide]
+  - docs/test-panel.md gains a "Panel walkthrough (click by click)": prerequisites (Y up, Z in
+    FYP_TEST), launch (run_panel.cmd [Y_IP] [plan]), plan selection/editing, the two live
+    Apply-* buttons, Start/Pause/Resume/Terminate, report viewer/CSV, Focus Z, a metric glossary
+    and a "common problems" table.
+  - Docs-only change; 116 tests + all plans still load; no behaviour change.
+
 END OF SYNC
 
