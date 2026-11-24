@@ -158,6 +158,36 @@ class TestPlanTests(unittest.TestCase):
         with self.assertRaises(PlanError):
             TestPlan.from_dict({"placement": "k8s"})
 
+    def test_custom_placement_round_trip(self):
+        tasks = {"A": "X", "B": "Y", "C": "Y", "D": "Y", "E": "Y", "L": "X"}
+        plan = TestPlan.from_dict({"placement": "custom",
+                                   "placement_tasks": tasks})
+        self.assertEqual(plan.placement, "custom")
+        self.assertEqual(plan.placement_table(), tasks)
+        data = plan.to_dict()
+        self.assertEqual(data["placement_tasks"], tasks)
+        again = TestPlan.from_dict(json.loads(json.dumps(data)))
+        self.assertEqual(again.to_dict(), data)
+
+    def test_custom_placement_is_validated(self):
+        with self.assertRaises(PlanError):
+            TestPlan.from_dict({"placement": "custom"})          # no table
+        with self.assertRaises(PlanError):
+            TestPlan.from_dict({"placement": "custom",
+                                "placement_tasks": {"A": "X"}})  # incomplete
+        with self.assertRaises(PlanError):
+            TestPlan.from_dict({"placement": "custom",
+                                "placement_tasks": {"A": "X", "B": "X",
+                                                    "C": "X", "D": "X",
+                                                    "E": "X", "L": "Y"}})
+        with self.assertRaises(PlanError):
+            TestPlan.from_dict({"placement": "all_cloud",
+                                "placement_tasks": {"A": "X"}})
+
+    def test_presets_do_not_emit_a_task_table(self):
+        data = TestPlan(placement="offload_ab").to_dict()
+        self.assertNotIn("placement_tasks", data)
+
 
 
 if __name__ == "__main__":

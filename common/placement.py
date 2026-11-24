@@ -107,6 +107,77 @@ def edge_pipeline(tasks):
                                for task in ("A", "B", "C", "D", "E"))
 
 
+# ---------------------------------------------------------------------------
+# WS3.5: free placement as a stage chain (A -> B -> C -> D -> E -> Z).
+# ---------------------------------------------------------------------------
+STAGES = ("A", "B", "C", "D", "E")
+STAGE_LABELS = {
+    "A": "simulation",
+    "B": "bot AI",
+    "C": "hit registration",
+    "D": "render",
+    "E": "encode",
+}
+
+
+def next_stage(stage):
+    """The stage after ``stage`` in the chain, or ``None`` for E."""
+    try:
+        index = STAGES.index(str(stage).strip().upper())
+    except ValueError:
+        return None
+    return STAGES[index + 1] if index + 1 < len(STAGES) else None
+
+
+def resolve_chain(tasks):
+    """Describe how a task table executes as a stage chain.
+
+    Returns ``{"stages": {stage: tier}, "crossings": [...], "stream_tier",
+    "pixel_channel", "state_crossings", "pixel_crossing"}``.  Every adjacent
+    pair of stages on different tiers is one network crossing; D->E crossing
+    tiers ships pixels instead of the JSON state.
+    """
+    tasks = tasks or {}
+    stages = {stage: str(tasks.get(stage, "X")).strip().upper()
+              for stage in STAGES}
+    crossings = []
+    for index in range(len(STAGES) - 1):
+        left, right = STAGES[index], STAGES[index + 1]
+        if stages[left] == stages[right]:
+            continue
+        kind = "pixels" if right == "E" else "state"
+        crossings.append({"from": left, "to": right,
+                          "src": stages[left], "dst": stages[right],
+                          "kind": kind})
+    pixel_crossing = any(item["kind"] == "pixels" for item in crossings)
+    return {
+        "stages": stages,
+        "crossings": crossings,
+        "state_crossings": sum(1 for item in crossings
+                               if item["kind"] == "state"),
+        "pixel_crossing": pixel_crossing,
+        "pixel_channel": pixel_crossing,
+        "stream_tier": stages["E"],
+    }
+
+
+def describe_chain(tasks):
+    """Panel-friendly sentence for a chain, including the crossing count."""
+    chain = resolve_chain(tasks)
+    stages = chain["stages"]
+    groups = []
+    for tier in ("X", "Y"):
+        names = [stage for stage in STAGES if stages[stage] == tier]
+        if names:
+            groups.append(f"{'/'.join(names)} on {tier}")
+    text = ", ".join(groups) + ", U on Z"
+    if chain["crossings"]:
+        kinds = "/".join(sorted({item["kind"] for item in chain["crossings"]}))
+        text += (f" — {len(chain['crossings'])} crossing(s) ({kinds}), "
+                 f"stream from {chain['stream_tier']}")
+    return text
+
+
 def describe(tasks):
     """Human-readable summary for the panel/status line."""
     if not tasks:

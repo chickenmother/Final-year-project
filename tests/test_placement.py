@@ -6,12 +6,15 @@ from common.placement import (
     PlacementError,
     TaskStats,
     describe,
+    describe_chain,
     edge_pipeline,
     merge_metrics,
+    next_stage,
     owners,
     pattern_table,
     remote_ab,
     render_tier,
+    resolve_chain,
     validate,
 )
 
@@ -99,6 +102,64 @@ class ValidationTests(unittest.TestCase):
         self.assertFalse(edge_pipeline(pattern_table("offload_ab")))
         self.assertTrue(edge_pipeline(pattern_table("all_edge")))
         self.assertFalse(edge_pipeline({}))
+
+
+class ChainTests(unittest.TestCase):
+    """WS3.5: any table is described as a stage chain with its crossings."""
+
+    def test_all_cloud_has_no_crossing(self):
+        chain = resolve_chain(pattern_table("all_cloud"))
+        self.assertEqual(chain["crossings"], [])
+        self.assertEqual(chain["stream_tier"], "X")
+        self.assertFalse(chain["pixel_channel"])
+
+    def test_offload_ab_is_one_state_crossing(self):
+        chain = resolve_chain(pattern_table("offload_ab"))
+        self.assertEqual(len(chain["crossings"]), 1)
+        self.assertEqual(chain["crossings"][0]["kind"], "state")
+        self.assertEqual(chain["crossings"][0]["src"], "Y")
+        self.assertEqual(chain["crossings"][0]["dst"], "X")
+        self.assertEqual(chain["stream_tier"], "X")
+
+    def test_pipeline_on_y_with_sim_on_x(self):
+        table = {"A": "X", "B": "X", "C": "Y", "D": "Y", "E": "Y", "L": "X"}
+        chain = resolve_chain(table)
+        self.assertEqual(len(chain["crossings"]), 1)
+        self.assertEqual(chain["crossings"][0]["from"], "B")
+        self.assertEqual(chain["crossings"][0]["to"], "C")
+        self.assertEqual(chain["stream_tier"], "Y")
+
+    def test_split_ab_costs_two_crossings(self):
+        table = {"A": "X", "B": "Y", "C": "X", "D": "X", "E": "X", "L": "X"}
+        chain = resolve_chain(table)
+        self.assertEqual(len(chain["crossings"]), 2)
+        self.assertEqual([item["kind"] for item in chain["crossings"]],
+                         ["state", "state"])
+        self.assertEqual(chain["state_crossings"], 2)
+
+    def test_render_encode_split_uses_the_pixel_channel(self):
+        table = {"A": "X", "B": "X", "C": "X", "D": "X", "E": "Y", "L": "X"}
+        chain = resolve_chain(table)
+        self.assertTrue(chain["pixel_crossing"])
+        self.assertEqual(chain["crossings"][0]["kind"], "pixels")
+        self.assertEqual(chain["stream_tier"], "Y")
+
+    def test_next_stage(self):
+        self.assertEqual(next_stage("A"), "B")
+        self.assertEqual(next_stage("D"), "E")
+        self.assertIsNone(next_stage("E"))
+        self.assertIsNone(next_stage("Z"))
+
+    def test_describe_chain_mentions_groups_and_crossings(self):
+        text = describe_chain(pattern_table("offload_ab"))
+        self.assertIn("A/B on Y", text)
+        self.assertIn("C/D/E on X", text)
+        self.assertIn("1 crossing", text)
+        self.assertIn("stream from X", text)
+
+    def test_describe_chain_without_crossing(self):
+        text = describe_chain(pattern_table("all_cloud"))
+        self.assertNotIn("crossing", text)
 
 
 class TaskStatsTests(unittest.TestCase):

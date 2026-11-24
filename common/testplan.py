@@ -18,7 +18,8 @@ INPUT_PATTERNS = ("idle", "strafe", "circle", "figure8", "shoot")
 EVENT_KINDS = ("delay", "mode", "pause", "pattern")
 VIDEO_PRESETS = ("current", "A0", "A1", "A2", "intra")
 # WS3.1 task placement axis; "legacy" keeps the whole-pipeline RTT fallback.
-PLACEMENTS = ("legacy", "all_cloud", "offload_ab", "all_edge")
+# WS3.5 adds "custom": an explicit per-stage table (placement_tasks).
+PLACEMENTS = ("legacy", "all_cloud", "offload_ab", "all_edge", "custom")
 
 MAX_DELAY_MS = 400
 MAX_DURATION_S = 600.0
@@ -172,6 +173,7 @@ class TestPlan:
     mode: str = "auto"
     video_preset: str = "current"
     placement: str = "legacy"
+    placement_tasks: dict = field(default_factory=dict)
     input_pattern: str = "strafe"
     events: list[Event] = field(default_factory=list)
 
@@ -196,6 +198,9 @@ class TestPlan:
                                  VIDEO_PRESETS, "current"),
             placement=_choice(raw.get("placement"), "placement", PLACEMENTS,
                               "legacy"),
+            placement_tasks={str(key).strip().upper(): str(value).strip().upper()
+                             for key, value in
+                             (raw.get("placement_tasks") or {}).items()},
             input_pattern=_choice(raw.get("input_pattern"), "input_pattern",
                                   INPUT_PATTERNS, "strafe"),
             events=events,
@@ -204,7 +209,7 @@ class TestPlan:
         return plan
 
     def to_dict(self):
-        return {
+        out = {
             "name": self.name,
             "warmup_s": round(float(self.warmup_s), 2),
             "duration_s": round(float(self.duration_s), 2),
@@ -216,6 +221,9 @@ class TestPlan:
             "input_pattern": self.input_pattern,
             "events": [e.to_dict() for e in self.sorted_events()],
         }
+        if self.placement == "custom":
+            out["placement_tasks"] = dict(self.placement_tasks)
+        return out
 
     def validate(self):
         if not self.name:
@@ -232,6 +240,17 @@ class TestPlan:
             raise PlanError("video_preset is invalid")
         if self.placement not in PLACEMENTS:
             raise PlanError("placement is invalid")
+        if self.placement == "custom":
+            if not self.placement_tasks:
+                raise PlanError("custom placement needs a task table")
+            from common.placement import PlacementError, validate
+            try:
+                validate(self.placement_tasks, require_all=True)
+            except PlacementError as exc:
+                raise PlanError(str(exc)) from None
+        elif self.placement_tasks:
+            raise PlanError("placement_tasks is only used when placement is "
+                            "'custom'")
         if self.input_pattern not in INPUT_PATTERNS:
             raise PlanError("input_pattern is invalid")
         for ev in self.events:
@@ -272,7 +291,9 @@ class TestPlan:
         if self.placement == "legacy":
             return None
         # Imported lazily: common.placement imports this module's percentile.
-        from common.placement import pattern_table
+        from common.placement import pattern_table, validate
+        if self.placement == "custom":
+            return validate(self.placement_tasks, require_all=True)
         return pattern_table(self.placement)
 
     def segments(self):
