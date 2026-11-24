@@ -61,7 +61,8 @@ A plan is plain JSON. The full example lives in
 |---|---|---|
 | `workload` | `light`, `medium`, `heavy` | game profile (bots/obstacles/bullets) |
 | `mode` (legacy) | `auto`, `cloud`, `edge` | Y whole-pipeline: RTT auto-switch, force X, force Y |
-| `placement` | `legacy`, `all_cloud`, `offload_ab`, `all_edge` | WS3.1–WS3.3 task table (all three patterns live) |
+| `placement` | `legacy`, `all_cloud`, `offload_ab`, `all_edge`, `custom` | WS3.1–WS3.3 task table; `custom` (WS3.5) places each stage on its own |
+| `placement_tasks` | `{"A":"X",…,"L":"X"}` | only with `placement: "custom"`: A–E plus L (L must stay on X) |
 | `video_preset` | `current`, `A0`, `A1`, `A2`, `intra` | recorded in WS2.1; applied to X at runtime (WS2.3) |
 | `input_pattern` | `idle`, `strafe`, `circle`, `figure8`, `shoot` | deterministic Z input |
 | `warmup_s` | 0–60 | excluded from the measurement |
@@ -279,9 +280,10 @@ Notes:
 
 7. **Apply video to X** — `A0`/`A1`/`A2`/`intra` rebuilds the X encoder (`current` = leave it).
    Intra-refresh needs Z started with `FYP_X_INTRA_REFRESH=1`.
-8. **Apply placement** — `legacy`/`all_cloud`/`offload_ab`/`all_edge`. A non-legacy run pins
-   rendering to the pattern's D tier (All Cloud and Offload on X, All Edge on Y). All Edge leaves
-   X idle (L only) and makes the video preset inert.
+8. **Apply placement** — `legacy`/`all_cloud`/`offload_ab`/`all_edge`/`custom`. A non-legacy run pins
+   streaming to the pattern's E tier (All Cloud and Offload on X, All Edge on Y); for `custom` it is
+   E's own row. All Edge leaves X idle (L only) and makes the video preset inert. Editing a row of
+   the *Task placement* frame switches the selector to `custom` for you.
 
 **Run it**
 
@@ -441,6 +443,44 @@ ticks of medium workload, plus a remote-C tick-for-tick comparison).
   (*“L did not answer…”*) and ignores unknown control messages instead of
   dropping the Z link.
 
+## WS3.5 — free task placement (custom chains)
+
+The presets are three points on one axis; `placement: "custom"` places **each**
+stage (A simulation, B bot AI, C hit registration, D render, E encode)
+independently, so all 32 assignments are expressible. L stays pinned to X and U
+is local to Z by rule, so no table can move them.
+
+- **Panel**: the *Task placement* frame under *Plan* has one row per stage plus
+  a disabled `L` row (pinned) and a live cost label, e.g.
+  `1 crossing(s) · state · stream from Y` or
+  `1 crossing(s) · pixels · stream from Y · pixels channel (D≠E)`.
+  Picking a preset fills the rows read-only; picking `custom` — or touching a
+  row — unlocks A–E. **Apply** stores the table on the plan, **Save** writes
+  `placement_tasks`, and **Apply placement** pushes the table to Y's router.
+- **Router**: Y sends `{"t":"placement","tasks":{…},"custom":true}`; X accepts
+  any validated table and confirms `placement_ok`. A custom run pins `mode` to
+  the chain's **stream tier** (E), not to D, and `on_game_start` re-applies that
+  pin.
+- **Execution**: a tick starts at A's tier. Each tier runs the longest local run
+  of stages and forwards at a crossing: `{"t":"stage","stage":"C","tick":n,
+  "seq":k,"keys":"d","s":{snapshot}}`. The tier that finishes the chain (E)
+  streams; when E is on X it also sends `{"t":"final",…}` so Y's mirror copy
+  stays current (counted as the `mirror` channel).
+- **Pixels channel**: when D and E are on different tiers the crossing carries
+  rendered pixels instead of the JSON state — one binary message,
+  `b"p" | tick | seq | head_len | head{fmt,size,s} | pixels`. JPEG at the
+  renderer's quality is the default (~88 KB/frame at 1280x720);
+  `FYP_PIXELS_RAW=1` sends RGBA instead (~2.8 MB/frame) for the stall case.
+- **Encoder-tick fix**: the sender declares its stride with
+  `{"t":"stride","src":"x"|"y","n":0}`; `0` means "irregular", and Z then never
+  treats a tick gap as a lost frame — no IDR storm, no freeze loop.
+- **Report**: `environment.crossings`, `stream_tier`, `pixels_format`,
+  `channels` (Y) and `channels_x` (X) with state/pixel message counts and bytes,
+  `mirror`, `stalls`/`stall_ticks`, `encode_fps`, `stage_p50`/`stage_p50_x`.
+- **Plans**: `tools/plans/ws3_5_*.json` — `pipeline_on_y`, `split_ab`,
+  `pixels`, `pixels_30s`, `pixels_raw`, `all_on_y` and `smoke_*` for the presets.
+  `tools/report_peek.py <report.json>` prints the chain fields of one report.
+
 ## Environment
 
 | Variable | Tier | Meaning |
@@ -454,6 +494,7 @@ ticks of medium workload, plus a remote-C tick-for-tick comparison).
 | `FYP_Z_INPUT_HZ` | Z | input sample rate (default 120) |
 | `FYP_PLAYER` | Y | name stored in the leaderboard entry (default `player`) |
 | `FYP_TEST_SAFE=0` | Y | disable the safe test overlay (HP/damage), so a run can end in a game over |
+| `FYP_PIXELS_RAW=1` | the tier that renders | send raw RGBA (not JPEG) over a D→E split (WS3.5); ~2.8 MB/frame at 1280x720 |
 
 Test runs overlay a safe player (`max_hp=1000`, zero obstacle/bot/contact **and bullet** damage) on
 Z's own config, so the match cannot end before `duration_s`. `tools/autoplay_z.ps1` still generates
@@ -468,7 +509,7 @@ an immortal config in `%TEMP%\fyp_ws1\game_config.json` for manual play.
 | Report has no X encode | X not linked, or `stats` never subscribed | WS2.3: the panel subscribes on start; check `x_stats` in Y's state and `X stats: on` in X's log |
 | `x_video` replies “Cloud X is not linked” | Y has no X connection (mode Y) | start/reconnect X; presets then apply without restarting X |
 | `video_ok` never arrives | encoder rebuild failed | check X's log for `video: encoder rebuild failed`; the previous encoder keeps streaming |
-| Placement shows `applied: false` | X rejected the table | All Cloud and Offload A/B are supported; All Edge is not yet (WS3.3) |
+| Placement shows `applied: false` | X rejected the table | check the error line; L must stay on X, and only one tier may own all of A/B/C/D/E unless it is a custom chain |
 | `offload` shows `-` | the run is not using Offload A/B | set `placement: offload_ab`; All Cloud has no state upload |
 | Leaderboard says “Middle Y closed the link” / “older build” | Z has the ws3.4 code but Y is old | pull `dev` and restart Y (and X); `main` does not have WS3.x yet |
 | Leaderboard says “L did not answer within 2.5 s” | X is old or unreachable | pull `dev` and restart X; check the X link in the panel |
@@ -485,10 +526,14 @@ an immortal config in `%TEMP%\fyp_ws1\game_config.json` for manual play.
 - `common/testplan.py` — plan/event validation, presets, timeline, summary math.
 - `common/report.py` — report JSON/CSV, history, safe load.
 - `common/xstats.py` — WS2.3 rolling encoder stats (fps, encode p50/p95, keyframes/s).
-- `common/placement.py` — WS3.1 task table, patterns, per-task timings.
+- `common/placement.py` — WS3.1 task table, patterns, per-task timings; WS3.5 `Chain`,
+  `resolve_chain`, `describe_chain`.
+- `common/pipeline.py` — WS3.5 chain routing (`local_run`, `plan_tick`), channel counters and the
+  `stage`/`final`/`stride`/`pixels` wire format.
 - `common/leaderboard.py` — WS3.4 L: SQLite score store (on X).
 - `ui/leaderboard.py` — WS3.4 U: ranked score screen (on Z).
-- `game/simulation.py` — WS3.2 `step_ab()` / `step_c()` split (`step()` = both).
+- `game/simulation.py` — WS3.2 `step_ab()` / `step_c()` split (`step()` = both); WS3.5
+  `step_a()` + `step_b()` (`step_ab()` = both).
 - `x_server.py` — game engine, H.264 renderer and the WS2.3 `video`/`stats`/`stop`
   handlers plus the WS3.1 `placement` acknowledgement.
 - `y_gateway.py` — `TestRunner`, dashboard commands, delay/mode timeline,
@@ -502,7 +547,8 @@ an immortal config in `%TEMP%\fyp_ws1\game_config.json` for manual play.
 - `tests/test_testplan.py`, `tests/test_report.py` — unit tests.
 - `tests/test_panel_model.py`, `tests/test_panel_smoke.py` — WS2.2 tests.
 - `tests/test_xstats.py` — WS2.3 encoder-stats tests.
-- `tests/test_placement.py` — WS3.1 placement model tests.
+- `tests/test_placement.py` — WS3.1 placement model tests + WS3.5 chain tests.
+- `tests/test_pipeline.py` — WS3.5 routing, all-32-assignment property test and wire format.
 - `tests/test_leaderboard.py` — WS3.4 L store tests.
 
 

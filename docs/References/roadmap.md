@@ -20,6 +20,8 @@ WS1.3 are committed; the dev/feature/release model is in `docs/References/branch
 - **WS1 System performance** - X video/latency: baseline, keyframe fix, post-fix, network.
 - **WS2 Test tooling** - runner/CLI, Tk control panel, X runtime control.
 - **WS3 Task placement** - router, All Cloud / Offload A/B / All Edge / Pinned L, L/U metrics.
+- **WS3.5 Free placement** - any A-E split as a stage chain (5 stages, 32 assignments), pixels
+  channel for D→E, panel row editor, per-run crossing/stall counters.
 - **WS4 Validation & reporting** - local/lab validation, comparison report, docs/archive.
 
 ## Schedule (sequence, not calendar dates)
@@ -44,19 +46,37 @@ Adjust the sequence to the FYP deadline.
 
 ## Current state (verified 2026-11-24)
 
-- Repo on `feature/ws3.4-leaderboard` (branched from `dev` @ `1e099ae`; tag `v0.4-ws2.2`).
-- WS3.4 is implemented and tested; this change is uncommitted until the next push.
+- Repo on `feature/ws3.5-free-placement` (branched from `dev` @ `388b468`).
+- WS3.4.1 (safe test overlay) is pushed and fast-forwarded on `dev`; WS3.5 (free task
+  placement) is implemented and validated locally on this branch.
 - Lab X is at `cda0f52` (WS1.2) and must be pulled to the current commit for the next lab run;
-  the WS3.1–WS3.4 checks used a local X.
+  the WS3.1–WS3.5 checks used a local X.
 - No X/Y/Z left running: the E2E tiers were stopped after the run (AGENTS cleanup rule).
 - Reports: WS1.1 A0/A1/A2, WS1.3-A1 `20261123-153034`, WS2.2 `20261123-161423`, WS2.3
   `20261123-164025`, WS3.1 All Cloud `20261124-111232`, WS3.2 Offload A/B `20261124-115317`,
-  WS3.3 All Edge `20261124-120713` and the 1-HP game-over run `20261124-124706`.
+  WS3.3 All Edge `20261124-120713`, the 1-HP game-over run `20261124-124706` and the WS3.5
+  chain matrix (below).
   Matched medium comparison on one PC: All Cloud `20261124-120640` e2e p50 14.85,
   Offload A/B 15.70 (536 KB/s upload), All Edge 13.10 (Y render 1.68 ms, encode 3.06 ms).
 - WS3.4 evidence: direct X submit → rank 1; Z `leaderboard_get` → same row through Y;
   1-HP match → second row with `source: test`; U screen rendered both rows.
-- Validation gate: 116 unit tests, selftest hash `30f043...`, and all test plans load.
+- WS3.5 evidence (isolated ports 8010-8012, 1280x720 H.264, local loopback):
+
+  | chain | crossings | Z fps | e2e p50 | report |
+  |---|---|---|---|---|
+  | All Cloud (regression) | 0 | 60.0 | 16.1 | `20261124-143954` |
+  | Offload A/B (regression) | 1 state | 60.0 | 16.6 | `20261124-144012` |
+  | All Edge (regression) | 0 | 30.0 | 17.6 | `20261124-144129` |
+  | A/B on X, C/D/E on Y | 1 state | 60.0 | 13.4 | `20261124-144414` |
+  | A on X, B on Y, C/D/E on X | 2 state | 60.0 | 15.5 | `20261124-144629` |
+  | A-D on X, E on Y (pixels, 30 s medium) | 1 pixels | 60.0 | 28.1 | `20261124-145508` |
+  | A-D on Y, E on X (pixels raw) | 1 pixels | ~47 | 30.0 | `20261124-145259` |
+  | A-E on Y | 0 | 60.0 | 12.4 | `20261124-144955` |
+
+  The JPEG D→E hop costs ~15 ms of e2e at 1280x720/60 (88 KB per frame); raw costs
+  ~120 MB/s and drops Z to ~47 fps without a stall or an IDR loop, because the sender
+  declares its stride so Z never mistakes a gap for a lost packet.
+- Validation gate: 150 unit tests, selftest hash `30f043...`, and all test plans load.
 
 ## Current progress
 
@@ -76,6 +96,9 @@ Adjust the sequence to the FYP deadline.
 | WS3.2 Offload A/B | Done | `step_ab`/`step_c` split, `state` upload, `offload` metrics; E2E `20261124-115317` |
 | WS3.3 All Edge + Pinned L | Done | A-E on Y, X idle (L only), no upload; E2E `20261124-120713` |
 | WS3.4 L/U + metrics | Done | SQLite L on X, submit/top via Y, U screen on Z; 107 tests |
+| WS3.4.1 Safe test overlay | Done | `safe` config on `test_start`, Z deep-merges; `FYP_TEST_SAFE=0` opt-out |
+| WS3.5 Free placement (F1) | Done | `Chain`/`resolve_chain`/`describe_chain`, `placement: custom` + `placement_tasks`, panel A-E rows, L pinned |
+| WS3.5 Chain executor (F2) | Done | `common/pipeline.py` routing + wire format, `step_a`/`step_b`, Y/X generic executors, pixels channel (JPEG/raw), stride declaration |
 | WS4.1 Local/lab validation | Ongoing | repeatable runs; duplicate-process hygiene |
 | WS4.2 Comparison report | Tooling done | `common/compare.py` + `tools/compare_reports.py`; 9 tests; local table generated; WAN runs pending |
 | WS4.3 Docs/archive | Ongoing | this roadmap; README/AGENTS/sync |
@@ -93,10 +116,12 @@ first-frame e2e ~13.1 ms, decode ~3.9 ms; intra-refresh max frame ~17 KB.
 
 ## Next step
 
-1. Keep the WS1.3 `20261123-153034`, WS2.2 `20261123-161423`, WS2.3 `20261123-164025`, WS3.1 `20261124-111232`, WS3.2 `20261124-115317`, WS3.3 `20261124-120713`, comparison `20261124-120640` and game-over `20261124-124706` reports with the archive.
+1. Keep the WS1.3 `20261123-153034`, WS2.2 `20261123-161423`, WS2.3 `20261123-164025`, WS3.1 `20261124-111232`, WS3.2 `20261124-115317`, WS3.3 `20261124-120713`, comparison `20261124-120640`, game-over `20261124-124706` and WS3.5 matrix reports with the archive.
 2. Run the three patterns over the real WAN (pull the lab X to the current commit first), then
    `tools/compare_reports.py --workload medium --out logs\reports\comparison_wan.md`.
-3. WS4.3: fold the WAN table into the README/docs and tag the release.
+3. Repeat the WS3.5 chain matrix over the WAN (the two-tier hops are where the crossings cost real
+   RTT), and add the chain columns to the comparison tool (F3).
+4. WS4.3: fold the WAN table into the README/docs and tag the release.
 
 ## Old -> new mapping
 

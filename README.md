@@ -89,6 +89,7 @@ The whole-pipeline baseline stays available as the comparison mode (`placement: 
 | **Offload A/B** | C D E L | A B + router | U | **Implemented (WS3.2)** |
 | **All Edge** | L | A B C D E + router | U | **Implemented (WS3.3)** |
 | **Pinned L** | L (pinned) + the A–E pattern | router | U | Rule across patterns |
+| **Custom (WS3.5)** | any subset of A–E | any subset + router | U | **Implemented (WS3.5)** |
 | **Legacy whole-pipeline** | A–E when healthy; idle in edge | A–E in `EDGE Y` | U | Implemented |
 
 Router / protocol (WS3.1/WS3.2 implemented):
@@ -98,12 +99,13 @@ Router / protocol (WS3.1/WS3.2 implemented):
 - **All Cloud**: X steps A+B and C itself. **Offload A/B**: Y steps A+B, ships its post-A+B state each tick (`{"t":"state",...}`, ~9 KB at medium workload) and X restores it and runs only C–E. **All Edge**: Y runs A–E and renders to Z; X keeps only L, is told to stay idle and receives neither start nor input.
 - Per-task timings (`sim` = A+B, `hit` = C, `render` = D, `encode` = E, `net` = hop) are collected on both tiers and merged into `state["task_stats"]` and the report; Offload A/B also records the upload rate/total in `environment.offload`.
 - **L** (leaderboard store) stays on X even in All Edge: Y submits `{"t":"task","id":"L","op":"submit",…}` when a match ends and X answers `task_result`; Z asks for the top rows with `{"t":"leaderboard_get","top":n}` and receives `{"t":"leaderboard","rows":[…]}`.
+- **Custom (WS3.5)**: each stage is placed on its own (`placement: "custom"` + `placement_tasks`); Y starts the tick at A's tier and both tiers forward at every tier change — JSON state, or pixels when D and E are split (`{"t":"stage"}`, `{"t":"final"}`, binary `p` frames). See the WS3.5 section below for the crossings, the pixel channel and the report fields.
 
 ### Pattern axes
 
 | Axis | Values | Current |
 |---|---|---|
-| **Placement pattern** | All Cloud / Offload A/B / All Edge (+ legacy) | WS3.1 All Cloud; WS3.2/WS3.3 the rest |
+| **Placement pattern** | All Cloud / Offload A/B / All Edge / custom (+ legacy) | WS3.1 All Cloud; WS3.2/WS3.3 the rest; WS3.5 any A–E split |
 | **Legacy mode** | `auto` / `cloud` / `edge` | Implemented (whole-pipeline fallback) |
 | **Video preset** | A0 / A1 / A2 / intra / current | Recorded + applied at runtime (WS2.3) |
 | Workload | light / medium / heavy | Implemented |
@@ -114,7 +116,7 @@ The test plan has `mode` (legacy whole-pipeline), `video_preset` (video) and `pl
 
 ### Implementation status
 
-- **Implemented:** whole-pipeline baseline; A–E game core (split into A+B / C for placement); U menu/overlay/config/leaderboard; H.264/JPEG; Y fallback; test runner/reports; Z test mode; WS2.2 Tk control panel; WS2.3 X runtime `video`/`stats`/`stop`; WS3.1 All Cloud; WS3.2 Offload A/B; WS3.3 All Edge; WS3.4 L (SQLite on X) + U leaderboard view.
+- **Implemented:** whole-pipeline baseline; A–E game core (split into A / B / C for placement); U menu/overlay/config/leaderboard; H.264/JPEG; Y fallback; test runner/reports; Z test mode; WS2.2 Tk control panel; WS2.3 X runtime `video`/`stats`/`stop`; WS3.1 All Cloud; WS3.2 Offload A/B; WS3.3 All Edge; WS3.4 L (SQLite on X) + U leaderboard view; WS3.4.1 safe test overlay; WS3.5 free placement (chain executor + pixels channel).
 - **Partial:** B (no pathfinding); F–K/M–T task splits are reserved.
 - **Planned:** the formal WS4.2 cross-pattern report over the real WAN link (WS4.3 docs/archive ongoing).
 
@@ -145,7 +147,8 @@ FYP/
 │   ├── leaderboard.py           # WS3.4 L: SQLite score store (lives on X)
 │   ├── compare.py               # WS4.2 report comparison logic (tested)
 │   ├── net.py                   # LAN address helper for startup banners
-│   ├── placement.py             # WS3.1 task table, patterns, per-task timings
+│   ├── placement.py             # WS3.1 task table, patterns, per-task timings, WS3.5 chain model
+│   ├── pipeline.py              # WS3.5 chain execution model + wire format (tested)
 │   ├── report.py                # test report JSON/CSV + history
 │   ├── testplan.py              # plan/event validation, timeline, summary math
 │   ├── video.py                 # PyAV H.264 encoder/decoder
@@ -169,6 +172,7 @@ FYP/
 ├── tools/
 │   ├── test_cli.py              # WS2.1 test driver
 │   ├── compare_reports.py       # WS4.2 cross-pattern comparison (md/csv)
+│   ├── report_peek.py           # print one report's summary + WS3.5 chain fields
 │   ├── test_panel.py            # WS2.2 Tk control panel (Tk + websocket shell)
 │   ├── panel_model.py           # WS2.2 headless panel logic (unit-tested)
 │   ├── autoplay_z.ps1           # immortal config + unattended Z launcher
@@ -181,7 +185,10 @@ FYP/
 │       ├── ws3_1_all_cloud.json # WS3.1 All Cloud + preset A1
 │       ├── ws3_1_all_cloud_medium.json # WS3.1 All Cloud, matched medium run
 │       ├── ws3_2_offload_ab.json # WS3.2 Offload A/B (medium) + preset A1
-│       └── ws3_3_all_edge.json  # WS3.3 All Edge (medium)
+│       ├── ws3_3_all_edge.json  # WS3.3 All Edge (medium)
+│       ├── ws3_5_pipeline_on_y.json / ws3_5_split_ab.json / ws3_5_pixels*.json
+│       ├── ws3_5_all_on_y.json  # WS3.5 custom chains (short runs)
+│       └── ws3_5_smoke_*.json   # WS3.5 regression smoke (10 s, three presets)
 ├── tests/
 │   ├── test_game_core.py
 │   ├── test_testplan.py
@@ -618,6 +625,57 @@ no stream) and does no work for the frame path. There is **no state upload**.
   the same row through Y, and a 1-HP test match (reported as `game over`) added a second row with
   `source: test`. The U screen renders both rows (`%TEMP%\ws34_u.png` during the check).
 
+### WS3.5 — free task placement (implemented)
+
+The three WS3 patterns are three points on one axis. WS3.5 lets a plan place **each stage**
+independently, so all 32 A–E assignments are expressible; the presets stay as they are.
+
+- **Model** (`common/placement.py`): `resolve_chain(tasks)` returns the tier per stage, the
+  crossings (`A→B`, `B→C`, …), the **stream tier** (E) and `pixel_channel` (D and E apart);
+  `describe_chain()` is the one-line panel text.
+- **Plan** (`common/testplan.py`): `placement: "custom"` plus `placement_tasks`
+  (`{"A":"X","B":"Y",…,"L":"X"}`). The table is validated on load (L stays on X, no local U) and
+  is only serialised for `custom`, so preset plans are unchanged.
+- **Panel** (`tools/test_panel.py`): a *Task placement* frame with one row per stage (A–E) plus L
+  (disabled: pinned) and a live cost label (`1 crossing(s) · state · stream from Y`). Picking a
+  preset fills the rows read-only; picking `custom` (or touching a row) unlocks A–E. Apply stores
+  the table on the plan, Save writes `placement_tasks`, and *Apply placement* pushes the table to
+  Y's router.
+- **Execution** (`common/pipeline.py` + both gateways): a tick starts at A's tier; each tier runs
+  the longest local run of stages and forwards at a crossing. `game/simulation.py` now splits
+  `step_ab` into `step_a` (input/physics/contacts/shooting) and `step_b` (bot AI, bullets), with
+  tests proving `step_a`+`step_b` = `step_ab` = the original fused tick.
+- **Channels**: crossings carry JSON state (~7-8 KB/tick at medium) — or, when D and E are split,
+  **rendered pixels**: JPEG at the renderer's quality (~88 KB/frame at 1280x720) or RGBA with
+  `FYP_PIXELS_RAW=1` (~2.8 MB/frame, opt-in). Stalls are counted, never fatal.
+- **Encoder-tick fix**: the sender declares its stride (`{"t":"stride","src":"x","n":0}` = irregular).
+  Z no longer treats a gap as a lost frame in that case, so a chain cannot fall into the
+  gap → IDR → freeze loop. Frames keep their source tick, sequence and `seq` as before.
+- **Report**: `crossings`, `stream_tier`, `pixels_format`, `channels`/`channels_x` (state/pixel
+  messages and bytes, mirror echo, stalls), `encode_fps` and `stage_p50`/`stage_p50_x`.
+
+Reproducible plans: `tools/plans/ws3_5_pipeline_on_y.json` (A/B on X, C/D/E on Y),
+`ws3_5_split_ab.json` (A on X, B on Y, C-E on X), `ws3_5_pixels.json` / `ws3_5_pixels_30s.json`
+(A-D on X, E on Y), `ws3_5_pixels_raw.json` (raw, D on Y, E on X), `ws3_5_all_on_y.json`, plus
+`ws3_5_smoke_*.json` for the three presets.
+
+Local matrix (isolated ports 8010-8012, 1280x720 H.264, loopback so RTT ≈ 0):
+
+| chain | crossings | Z fps | e2e p50 |
+|---|---|---|---|
+| All Cloud | 0 | 60.0 | 16.1 ms |
+| Offload A/B | 1 state | 60.0 | 16.6 ms |
+| All Edge | 0 | 30.0 | 17.6 ms |
+| A/B on X, C/D/E on Y | 1 state | 60.0 | 13.4 ms |
+| A on X, B on Y, C/D/E on X | 2 state | 60.0 | 15.5 ms |
+| A-D on X, E on Y (JPEG, 30 s medium) | 1 pixels | 60.0 | 28.1 ms |
+| A-D on Y, E on X (raw) | 1 pixels | ~47 | 30.0 ms |
+| A-E on Y | 0 | 60.0 | 12.4 ms |
+
+The pixels split is what WS3.5 adds to the study: the same pipeline with D and E on different
+tiers pays the frame transfer (JPEG ~15 ms, raw ~120 MB/s and a frame-rate drop) instead of the
+state upload.
+
 ### WS4.2 — comparison report (tooling implemented)
 
 `tools/compare_reports.py` + `common/compare.py` build the cross-pattern table straight from Y's
@@ -819,8 +877,9 @@ version lines too: a different Python version is the most likely reason for a mi
 .\venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Covers the game core, config clamping, snapshot/restore determinism, test-plan validation/timeline
-and report writing.
+Covers the game core (including the `step_a`/`step_b`/`step_c` splits), config clamping,
+snapshot/restore determinism, test-plan validation/timeline, report writing, the panel model and
+the WS3.5 placement/chain model (150 tests).
 
 ### Test runner
 

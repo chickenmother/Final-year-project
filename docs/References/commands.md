@@ -31,3 +31,17 @@ py -3.13 -m venv venv
 - Matched WAN runs (same workload, ~60 s each): `ws3_1_all_cloud_medium.json`,
   `ws3_2_offload_ab.json`, `ws3_3_all_edge.json`, then the comparison above.
   All Edge cannot use the A1 X preset (Y encodes), so it runs `current` by design.
+- Free placement (WS3.5): set `"placement": "custom"` plus a `placement_tasks` table, or edit the
+  panel's *Task placement* rows. Bundled chains:
+  `.\\venv\\Scripts\\python.exe tools\\test_cli.py --plan tools\\plans\\ws3_5_pipeline_on_y.json`
+  (`pipeline_on_y`, `split_ab`, `pixels`, `pixels_30s`, `pixels_raw`, `all_on_y`).
+  Raw pixels instead of JPEG over a D→E split: `$env:FYP_PIXELS_RAW = "1"` on the rendering tier
+  (2.8 MB per 1280x720 frame; expect a frame-rate drop on a real link).
+  Inspect one report's chain fields:
+  `.\\venv\\Scripts\\python.exe tools\\report_peek.py logs\\reports\\<id>.json`.
+- Regression smoke for the three presets (10 s each): `ws3_5_smoke_all_cloud.json`,
+  `ws3_5_smoke_offload_ab.json`, `ws3_5_smoke_all_edge.json`.
+- Isolated-port stack for a second session (does not touch 8000/8002):
+  `$env:FYP_X_PORT="8011"` for X; `$env:FYP_X_PORT="8011"; $env:FYP_Y_PORT_Z="8010";
+  $env:FYP_Y_PORT_DASH="8012"` for Y; `$env:FYP_Y_URI="ws://127.0.0.1:8010"; $env:FYP_TEST="1"`
+  for Z; then point the CLI at `--y ws://127.0.0.1:8012`.

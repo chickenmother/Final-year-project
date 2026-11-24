@@ -251,6 +251,7 @@ def metrics(state):
         "x_kb": fmt(x_stats.get("frame_kb"), 1),
         "x_video": video_label(state.get("x_video")),
         "placement": describe_placement(state.get("placement")),
+        "chain": chain_line(state),
         "task_sim": task_line(state.get("task_stats"), "sim"),
         "task_hit": task_line(state.get("task_stats"), "hit"),
         "task_render": task_line(state.get("task_stats"), "render"),
@@ -268,6 +269,41 @@ def offload_line(info):
     rate = fmt(info.get("kb_s"), 1)
     total = _number(info.get("total")) / 1024
     return f"{rate} KB/s · {fmt(total, 0)} kB"
+
+
+def chain_line(state):
+    """WS3.5: ``1 crossing · state 12 kB/s · pixels 3.6 MB/s · 0 stalls``.
+
+    Reads the counters Y publishes for the running chain; ``-`` when the run
+    uses a preset (or nothing is running).
+    """
+    state = state or {}
+    channels = state.get("channels") or {}
+    x_channels = state.get("x_channels") or {}
+    if not channels and not x_channels:
+        return "-"
+    parts = []
+    crossings = state.get("chain_crossings")
+    if crossings is not None:
+        parts.append(f"{int(crossings)} crossing(s)")
+    tier = channels.get("stream_tier") or state.get("mode") or "-"
+    parts.append(f"stream {tier}")
+    state_msgs = (_number(channels.get("state_msgs"))
+                  + _number(x_channels.get("state_msgs")))
+    pixel_msgs = (_number(channels.get("pixel_msgs"))
+                  + _number(x_channels.get("pixel_msgs")))
+    if state_msgs:
+        kb = (_number(channels.get("state_bytes"))
+              + _number(x_channels.get("state_bytes"))) / 1024
+        parts.append(f"state {fmt(kb, 0)} kB")
+    if pixel_msgs:
+        mb = (_number(channels.get("pixel_bytes"))
+              + _number(x_channels.get("pixel_bytes"))) / (1024 * 1024)
+        parts.append(f"pixels {fmt(mb, 1)} MB")
+    stalls = max(_number(channels.get("stalls")),
+                 _number(x_channels.get("stalls")))
+    parts.append(f"{int(stalls)} stall(s)")
+    return " · ".join(parts)
 
 
 def task_line(task_stats, task):

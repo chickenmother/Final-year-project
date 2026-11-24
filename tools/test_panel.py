@@ -438,6 +438,7 @@ class PanelApp:
                   ("x_encode", "X encode p50 ms"), ("x_encode_p95", "p95 ms"),
                   ("x_kf", "X keyframes/s"), ("x_kb", "frame KB"),
                   ("x_video", "X video"), ("placement", "placement"),
+                  ("chain", "chain (WS3.5)"),
                   ("task_sim", "sim p50 X / Y"), ("task_hit", "hit p50 X / Y"),
                   ("task_render", "render p50 X / Y"),
                   ("task_encode", "encode p50 X / Y"),

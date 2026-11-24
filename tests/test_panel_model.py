@@ -67,6 +67,24 @@ class PlanEditingTests(unittest.TestCase):
         custom = pm.build_plan({"placement": "custom"}, (), tasks)
         self.assertEqual(pm.tasks_for(custom), tasks)
 
+    def test_chain_line(self):
+        self.assertEqual(pm.chain_line({}), "-")
+        self.assertEqual(pm.chain_line({"channels": {}, "x_channels": {}}), "-")
+        line = pm.chain_line({
+            "chain_crossings": 1, "mode": "Y",
+            "channels": {"stream_tier": "Y", "state_msgs": 10,
+                         "state_bytes": 2048, "pixel_msgs": 0,
+                         "pixel_bytes": 0, "stalls": 0},
+            "x_channels": {"state_msgs": 5, "state_bytes": 1024,
+                           "pixel_msgs": 2, "pixel_bytes": 3 * 1024 * 1024,
+                           "stalls": 0},
+        })
+        self.assertIn("1 crossing(s)", line)
+        self.assertIn("stream Y", line)
+        self.assertIn("state 3 kB", line)
+        self.assertIn("pixels 3.0 MB", line)
+        self.assertIn("0 stall(s)", line)
+
     def test_chain_summary_and_titles(self):
         self.assertIn("legacy", pm.chain_summary({}))
         summary = pm.chain_summary(pm.preset_tasks("offload_ab"))

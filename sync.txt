@@ -1,11 +1,11 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-24 13:30 +09:00   (from Y / home PC)
+Last updated : 2026-11-24 15:05 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
-Branch : feature/ws4.2-comparison   (from dev; main has PR #1)
-HEAD   : 2017b69  "WS4.2: cross-pattern comparison tool (markdown/CSV from reports)"
-         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.x + WS3.x + WS4.2 tooling)
+Branch : feature/ws3.5-free-placement   (from dev; main has PR #1)
+HEAD   : WS3.5 free task placement (chain executor + pixels channel)
+         (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.x + WS3.x + WS3.5 + WS4.2 tooling)
 
 ====================================================================
 1. MACHINE ROLES / ADDRESSES
@@ -1028,6 +1028,32 @@ HEAD   : 2017b69  "WS4.2: cross-pattern comparison tool (markdown/CSV from repor
   - Docs: README (safe runs), docs/test-panel.md (Safe section, env table, walkthrough note).
   - 117 tests, selftest hash unchanged. My isolated tiers stopped; the user's panel/Z left alone.
   - Restart Y and Z after pulling: the overlay needs both sides.
+
+[2026-11-24 15:05 +09:00 | from Y / home PC — WS3.5 free task placement]
+  - F1 model: common/placement.py gains Chain-ready resolve_chain()/describe_chain()/next_stage()
+    (tier per stage, crossings, stream tier, pixel channel); common/testplan.py accepts
+    placement "custom" + placement_tasks (validated on load, only serialised for custom).
+  - F1 panel: tools/test_panel.py has a "Task placement" frame: A-E rows + disabled L (pinned),
+    live cost label ("1 crossing(s) - state - stream from Y"), preset fill, Apply stores the table,
+    Save writes placement_tasks, Apply placement pushes {"cmd":"placement","tasks":{...}}.
+  - F2 execution: common/pipeline.py (Chain/local_run/plan_tick over all 32 assignments,
+    ChannelStats, stage/final/stride/pixels wire format); game/simulation.py step_ab split into
+    step_a + step_b (tests prove identical ticks). Y starts each tick at A's tier, both tiers
+    forward at a crossing ({"t":"stage",...}); D/E split ships pixels as one binary message
+    (b"p"|tick|seq|head|pixels), JPEG by default, FYP_PIXELS_RAW=1 for RGBA.
+  - Encoder-tick fix: Y/X broadcast {"t":"stride","src":"x"|"y","n":0} for a chain, so Z never
+    treats a tick gap as a lost frame -> no IDR storm / freeze loop. Presets keep their stride.
+  - Report: environment.crossings, stream_tier, pixels_format, channels (Y) + channels_x (X)
+    (state/pixel msgs+bytes, mirror, stalls, stage_p50), encode_fps. tools/report_peek.py prints them.
+  - Live matrix (isolated ports 8010-8012, local loopback, 1280x720 H.264): All Cloud 16.1 ms,
+    Offload A/B 16.6, All Edge 17.6, A-B on X + C-E on Y 13.4, split A/B 15.5, A-D on X + E on Y
+    (JPEG, 30 s medium) 28.1 at 60 fps, A-D on Y + E on X (raw, ~120 MB/s) 30.0 at ~47 fps,
+    A-E on Y 12.4. Reports 20261124-1439xx/1440xx/1444xx/1445xx in logs/reports (git-ignored).
+  - 150 tests OK, selftest hash 30f043222e75fabf0ec80d2cd7edf6df. My isolated tiers stopped;
+    the user's own 8000/8002 stack was not touched.
+  - Pull X AND Y before the next lab run: WS3.5 changes both gateways and Z's frame handling.
+  - Known gaps: only 8 of 32 assignments were exercised live (the model test covers all 32);
+    the pixels split re-renders for the JPEG payload (a second render on the sending tier).
 
 END OF SYNC
 
