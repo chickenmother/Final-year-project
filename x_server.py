@@ -2,6 +2,7 @@
 import asyncio, collections, csv, json, os, struct, time
 from websockets.asyncio.server import serve
 from common import config as C
+from common.leaderboard import Leaderboard, LeaderboardError
 from common.net import lan_ip, quiet_handshake_errors
 from common.placement import (
     PlacementError,
@@ -27,6 +28,7 @@ log_f = log_w = None
 n_logged = 0
 stats = FrameStats(window_s=2.0)         # rolling encoder stats (WS2.3)
 placement_owner = list(TASKS)           # tasks Cloud X currently runs (WS3.1)
+leaderboard = None                      # L: SQLite store on X (WS3.4)
 
 
 async def apply_video(m):
@@ -241,6 +243,31 @@ async def handler(ws):
                        else " (A/B from Y state)" if remote_ab else ""))
                 await send(json.dumps({"t": "placement_ok",
                                        "tasks": {task: "X" for task in owned}}))
+            elif t == "task":
+                # WS3.4: L is pinned to X, so Y routes every score here.
+                ident = m.get("id")
+                if ident != "L":
+                    await send(json.dumps({"t": "task_result", "id": ident,
+                                           "ok": False,
+                                           "error": f"task {ident!r} is not on X"}))
+                    continue
+                op = str(m.get("op") or "")
+                try:
+                    if op == "submit":
+                        result = leaderboard.submit(m.get("entry") or {})
+                    elif op == "top":
+                        result = {"rows": leaderboard.top(m.get("top", 10)),
+                                  "count": leaderboard.count()}
+                    else:
+                        raise LeaderboardError(f"unknown L op {op!r}")
+                except LeaderboardError as exc:
+                    await send(json.dumps({"t": "task_result", "id": "L",
+                                           "ok": False, "error": str(exc)}))
+                    continue
+                await send(json.dumps({"t": "task_result", "id": "L", "ok": True,
+                                       **result}))
+                print(f"[{time.strftime('%X')}] L {op}: {leaderboard.count()} "
+                      f"row(s)")
             elif t == "start":
                 try:
                     game = Game(m.get("workload", "light"),
@@ -345,8 +372,11 @@ async def handler(ws):
 
 
 async def main():
-    global log_f, log_w, x_encoder
+    global log_f, log_w, x_encoder, leaderboard
     os.makedirs("logs", exist_ok=True)
+    leaderboard = Leaderboard(os.path.join("logs", "leaderboard.db"))
+    print(f"L store: {os.path.abspath(leaderboard.path)} "
+          f"({leaderboard.count()} row(s))")
     log_f = open(os.path.join("logs", "log_x.csv"), "w", newline="")
     log_w = csv.writer(log_f)
     log_w.writerow(["unix_time", "tick", "seq", "codec", "key",

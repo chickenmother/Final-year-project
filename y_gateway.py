@@ -35,7 +35,7 @@ state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
          "z_stats": {}, "x_stats": {}, "x_video": {}, "x_fps": 0.0, "y_fps": 0.0,
          "placement": {}, "placement_pattern": "legacy", "placement_applied": False,
          "x_placement": {}, "task_stats": {}, "offload": {}, "remote_ab": False,
-         "edge_only": False, "reports": []}
+         "edge_only": False, "leaderboard": [], "reports": []}
 inp = {"keys": "", "seq": 0, "latch": False}
 zs = {}                # Z connection -> frame queue + capability slot
 last_fwd, bad, good_since = 0, 0, None
@@ -160,6 +160,24 @@ def send_x_control(payload):
     return True
 
 
+def submit_score():
+    """WS3.4: L is pinned to X, so Y routes the finished match's score there."""
+    name = os.environ.get("FYP_PLAYER", "player")
+    placement = ""
+    source = "manual"
+    if test_runner is not None and test_runner.plan is not None:
+        placement = test_runner.plan.placement
+        source = "test"
+    entry = {"name": name, "score": int(game.score),
+             "deaths": int(game.deaths), "workload": game.workload.name,
+             "seed": game.seed, "placement": placement, "source": source}
+    if send_x_control({"t": "task", "id": "L", "op": "submit", "entry": entry}):
+        print(f"[{time.strftime('%X')}] L submit: {entry['score']} "
+              f"({entry['workload']}, {source})")
+    else:
+        print(f"[{time.strftime('%X')}] L submit skipped: Cloud X is not linked")
+
+
 
 async def z_sender(ws, slot, lock):
     try:
@@ -240,8 +258,20 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
             state["playing"] = False
             broadcast(json.dumps(m), keyframe=True)
             print(f"game over: score={m.get('score')}")
+            submit_score()
             if test_runner is not None:
                 test_runner.on_game_over()
+        elif m["t"] == "task_result" and m.get("id") == "L":
+            # WS3.4: L lives on X; forward the answer to Z's U view.
+            if m.get("ok"):
+                state["leaderboard"] = m.get("rows") or []
+                broadcast(json.dumps({"t": "leaderboard",
+                                      "rows": state["leaderboard"],
+                                      "count": m.get("count", len(state["leaderboard"]))}))
+            else:
+                broadcast(json.dumps({"t": "leaderboard", "rows": [],
+                                      "error": m.get("error") or "L error"}))
+                print(f"L error: {m.get('error')}")
         elif m["t"] == "x_stats":
             # WS2.3: 1 Hz encoder summary from Cloud X.
             state["x_stats"] = {key: value for key, value in m.items()
@@ -317,6 +347,7 @@ async def tick_loop():
                 broadcast(json.dumps({"t": "game_over", "score": game.score,
                                       "deaths": game.deaths}), keyframe=True)
                 print(f"game over (edge): score={game.score}")
+                submit_score()
                 if test_runner is not None:
                     test_runner.on_game_over()
         else:
@@ -905,6 +936,15 @@ async def z_handler(ws):
                       f"obstacles={game.workload.obstacles}")
                 if test_runner is not None:
                     test_runner.on_game_start()
+                continue
+            if m.get("t") == "leaderboard_get":
+                # WS3.4: Z asks for the top rows; L lives on X.
+                top = m.get("top", 10)
+                if not send_x_control({"t": "task", "id": "L", "op": "top",
+                                       "top": top}):
+                    await ws.send(json.dumps({
+                        "t": "leaderboard", "rows": [],
+                        "error": "Cloud X is not linked"}))
                 continue
             inp["keys"], inp["seq"] = m["keys"], m["n"]
             state["e2e"] = m.get("e2e", 0.0)

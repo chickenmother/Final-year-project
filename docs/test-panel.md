@@ -128,6 +128,8 @@ the timeline delay events. WS2.3 adds the runtime control channel:
 {"t":"stop"}
 {"t":"placement","tasks":{"A":"X","B":"X","C":"X","D":"X","E":"X","L":"X"}}
 {"t":"state","tick":1234,"seq":77,"keys":"d ","s":{"tick":1234,"bots":[...], ...}}
+{"t":"task","id":"L","op":"submit","entry":{"name":"player","score":420,...}}
+{"t":"task","id":"L","op":"top","top":10}
 ```
 
 The last one is WS3.2's Offload A/B channel: Y steps A+B and ships its post-A+B snapshot
@@ -326,6 +328,22 @@ ticks of medium workload, plus a remote-C tick-for-tick comparison).
 - The plan's `video_preset` is inert here: WS2.3's runtime `video` command only
   controls X, and X is idle. Y's encoder is fixed by `FYP_Y_*` at startup.
 
+## WS3.4 — L (SQLite on X) and U (leaderboard view on Z)
+
+- `common/leaderboard.py` is the store: one SQLite table
+  (`logs/leaderboard.db` on X), ordered by `score DESC, created ASC`, limit
+  1–50, defaults for a missing name, and validation of score/deaths.
+- X opens it at startup and handles `{"t":"task","id":"L","op":"submit"|"top"}`
+  → `{"t":"task_result","id":"L","ok":true,"entry_id","rank","rows"}` (or
+  `ok:false` + `error`).
+- Y submits on game over (both the X-driven and the All Edge paths), with
+  `source` = `manual`/`test` and the run's `placement`.
+- Z asks with `{"t":"leaderboard_get","top":n}` on the data socket; Y forwards
+  the `top` task and relays `{"t":"leaderboard","rows":[…],"count":n}`. If X is
+  not linked, Y answers immediately with an error row set instead of hanging.
+- U (`ui/leaderboard.py`) draws the ranked table and returns on
+  `Esc`/`Enter`/click; the menu entry and the `L` key open it.
+
 ## Environment
 
 | Variable | Tier | Meaning |
@@ -337,6 +355,7 @@ ticks of medium workload, plus a remote-C tick-for-tick comparison).
 | `FYP_X_STREAM_EVERY`, `FYP_Y_STREAM_EVERY` | sender and Z | frame stride; must match |
 | `FYP_HIGH_MS`, `FYP_LOW_MS`, `FYP_BAD_COUNT`, `FYP_RECOVER_S` | Y | RTT mode-switch thresholds |
 | `FYP_Z_INPUT_HZ` | Z | input sample rate (default 120) |
+| `FYP_PLAYER` | Y | name stored in the leaderboard entry (default `player`) |
 
 The test config used by the unattended runs should keep the player alive:
 `player.max_hp=1000`, `player.obstacle_damage=0`, `player.bot_damage=0`, and a
@@ -367,6 +386,8 @@ The test config used by the unattended runs should keep the player alive:
 - `common/report.py` — report JSON/CSV, history, safe load.
 - `common/xstats.py` — WS2.3 rolling encoder stats (fps, encode p50/p95, keyframes/s).
 - `common/placement.py` — WS3.1 task table, patterns, per-task timings.
+- `common/leaderboard.py` — WS3.4 L: SQLite score store (on X).
+- `ui/leaderboard.py` — WS3.4 U: ranked score screen (on Z).
 - `game/simulation.py` — WS3.2 `step_ab()` / `step_c()` split (`step()` = both).
 - `x_server.py` — game engine, H.264 renderer and the WS2.3 `video`/`stats`/`stop`
   handlers plus the WS3.1 `placement` acknowledgement.
@@ -382,5 +403,6 @@ The test config used by the unattended runs should keep the player alive:
 - `tests/test_panel_model.py`, `tests/test_panel_smoke.py` — WS2.2 tests.
 - `tests/test_xstats.py` — WS2.3 encoder-stats tests.
 - `tests/test_placement.py` — WS3.1 placement model tests.
+- `tests/test_leaderboard.py` — WS3.4 L store tests.
 
 

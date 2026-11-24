@@ -32,29 +32,31 @@ WS1.3 are committed; the dev/feature/release model is in `docs/References/branch
 | **Done** | WS3.1 | Y task router + All Cloud | A-E/L placed on X; per-task metrics; E2E `20261124-111232` | 2 sessions |
 | **Done** | WS3.2 | Offload A/B | A/B on Y; C-E/L on X; E2E `20261124-115317`; comparison report | 2 sessions |
 | **Done** | WS3.3 | All Edge + Pinned L | C/D/E on Y; L on X; E2E `20261124-120713` | 2 sessions |
-| **Now** | WS3.4 | L SQLite + U leaderboard view + metrics | leaderboard displayed; per-task data | 2 sessions |
-| **Final** | WS4.2 | Comparison report | FYP-ready WS1.1/WS1.3 and WS3.1-WS3.3 results | 2-3 sessions |
+| **Done** | WS3.4 | L SQLite + U leaderboard view | store on X, submit/top through Y, ranked screen on Z | 2 sessions |
+| **Now** | WS4.2 | Comparison report | FYP-ready WS1.1/WS1.3 and WS3.1-WS3.4 results | 2-3 sessions |
 | **Final** | WS4.3 | Docs/archive/final report | README/AGENTS/sync and report complete | ongoing |
 
 Dependencies: WS1.3 is done (report archived) but a repeat is worth doing once the network/RTT is
-recalibrated. WS2.2, WS2.3 and WS3.1–WS3.3 are done: all three placement patterns run, with
-per-task metrics and (for Offload A/B) the upload cost. WS3.4 is next (L on X + leaderboard view);
-WS4.2 depends on WS1.3 and the WS3.x results. WS4.1 and WS4.3 run throughout.
+recalibrated. WS2.2, WS2.3 and WS3.1–WS3.4 are done: all three placement patterns run with per-task
+metrics and (for Offload A/B) the upload cost, and L/U provide the leaderboard. WS4.2 (the formal
+comparison report) is the remaining research deliverable; WS4.3 runs throughout.
 Adjust the sequence to the FYP deadline.
 
 ## Current state (verified 2026-11-24)
 
-- Repo on `feature/ws3.3-all-edge` (branched from `dev` @ `d1b735f`; tag `v0.4-ws2.2`).
-- WS3.3 is implemented and tested; this change is uncommitted until the next push.
+- Repo on `feature/ws3.4-leaderboard` (branched from `dev` @ `1e099ae`; tag `v0.4-ws2.2`).
+- WS3.4 is implemented and tested; this change is uncommitted until the next push.
 - Lab X is at `cda0f52` (WS1.2) and must be pulled to the current commit for the next lab run;
-  the WS3.1–WS3.3 E2Es used a local X.
+  the WS3.1–WS3.4 checks used a local X.
 - No X/Y/Z left running: the E2E tiers were stopped after the run (AGENTS cleanup rule).
 - Reports: WS1.1 A0/A1/A2, WS1.3-A1 `20261123-153034`, WS2.2 `20261123-161423`, WS2.3
-  `20261123-164025`, WS3.1 All Cloud `20261124-111232`, WS3.2 Offload A/B `20261124-115317`
-  and WS3.3 All Edge `20261124-120713` (60 fps). Matched medium Workload comparison on one PC:
-  All Cloud `20261124-120640` e2e p50 14.85, Offload A/B 15.70 (536 KB/s upload),
-  All Edge 13.10 (Y render 1.68 ms, encode 3.06 ms).
-- Validation gate: 99 unit tests, selftest hash `30f043...`, and all test plans load.
+  `20261123-164025`, WS3.1 All Cloud `20261124-111232`, WS3.2 Offload A/B `20261124-115317`,
+  WS3.3 All Edge `20261124-120713` and the 1-HP game-over run `20261124-124706`.
+  Matched medium comparison on one PC: All Cloud `20261124-120640` e2e p50 14.85,
+  Offload A/B 15.70 (536 KB/s upload), All Edge 13.10 (Y render 1.68 ms, encode 3.06 ms).
+- WS3.4 evidence: direct X submit → rank 1; Z `leaderboard_get` → same row through Y;
+  1-HP match → second row with `source: test`; U screen rendered both rows.
+- Validation gate: 107 unit tests, selftest hash `30f043...`, and all test plans load.
 
 ## Current progress
 
@@ -73,9 +75,9 @@ Adjust the sequence to the FYP deadline.
 | WS3.1 Router + All Cloud | Done | `common/placement.py`; All Cloud applied, L pinned; E2E `20261124-111232` |
 | WS3.2 Offload A/B | Done | `step_ab`/`step_c` split, `state` upload, `offload` metrics; E2E `20261124-115317` |
 | WS3.3 All Edge + Pinned L | Done | A-E on Y, X idle (L only), no upload; E2E `20261124-120713` |
-| WS3.4 L/U + metrics | **Next build** | SQLite L; leaderboard view; per-task data |
+| WS3.4 L/U + metrics | Done | SQLite L on X, submit/top via Y, U screen on Z; 107 tests |
 | WS4.1 Local/lab validation | Ongoing | repeatable runs; duplicate-process hygiene |
-| WS4.2 Comparison report | Planned | after WS1.3 and WS3.2/3.3 |
+| WS4.2 Comparison report | **Next build** | after WS1.3 and WS3.2/3.3 |
 | WS4.3 Docs/archive | Ongoing | this roadmap; README/AGENTS/sync |
 
 ### WS1.1 baseline results (archived)
@@ -91,9 +93,9 @@ first-frame e2e ~13.1 ms, decode ~3.9 ms; intra-refresh max frame ~17 KB.
 
 ## Next step
 
-1. Keep the WS1.3 `20261123-153034`, WS2.2 `20261123-161423`, WS2.3 `20261123-164025`, WS3.1 `20261124-111232`, WS3.2 `20261124-115317`, WS3.3 `20261124-120713` and the comparison `20261124-120640` reports with the archive.
-2. Build WS3.4 (L on X): SQLite leaderboard store, `task_result`/`leaderboard` messages, the U view on Z, then the formal WS4.2 cross-pattern report.
-3. Optional: pull the lab X and repeat the three patterns over the real WAN link (this is where the placement choice actually matters).
+1. Keep the WS1.3 `20261123-153034`, WS2.2 `20261123-161423`, WS2.3 `20261123-164025`, WS3.1 `20261124-111232`, WS3.2 `20261124-115317`, WS3.3 `20261124-120713`, comparison `20261124-120640` and game-over `20261124-124706` reports with the archive.
+2. Build WS4.2: the formal comparison report — per-task latency/compute for All Cloud vs Offload A/B vs All Edge, the upload cost, and the leaderboard check, over the real WAN link (pull the lab X first).
+3. WS4.3: fold the results into the README/docs and tag the release.
 
 ## Old -> new mapping
 

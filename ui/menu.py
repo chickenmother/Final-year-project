@@ -65,7 +65,8 @@ class Menu:
         mouse = pygame.mouse.get_pos()
         self._draw_button(self.buttons["vs_bot"], "VS BOT  (start)",
                           hover=self.buttons["vs_bot"].collidepoint(mouse))
-        self._draw_button(self.buttons["leaderboard"], "LEADERBOARD  (later)", False)
+        self._draw_button(self.buttons["leaderboard"], "LEADERBOARD  (L)",
+                          hover=self.buttons["leaderboard"].collidepoint(mouse))
         self._draw_button(self.buttons["multiplayer"], "MULTIPLAYER  (later)", False)
         self._draw_button(self.buttons["config"], "GAME CONFIG  (C)",
                           hover=self.buttons["config"].collidepoint(mouse))
@@ -116,6 +117,8 @@ class Menu:
                                 "config": self.config}
                     if event.key == pygame.K_c:
                         return {"action": "config"}
+                    if event.key == pygame.K_l:
+                        return {"action": "leaderboard"}
                     if event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
                         index = event.key - pygame.K_1
                         if index < len(self.workloads):
@@ -129,6 +132,8 @@ class Menu:
                             return None
                         if name == "config":
                             return {"action": "config"}
+                        if name == "leaderboard":
+                            return {"action": "leaderboard"}
                         if name == "vs_bot":
                             return {"action": "start", "workload": self.workload,
                                     "config": self.config}

@@ -959,5 +959,23 @@ HEAD   : c192ce9  "WS3.3: All Edge placement (A-E on Y, X idle with L only) + pa
   - Lab X still at cda0f52.
   - Next: WS3.4 (L SQLite on X, leaderboard view on Z, then the WS4.2 report).
 
+[2026-11-24 12:50 +09:00 | from Y / home PC — WS3.4 L + U leaderboard shipped]
+  - New common/leaderboard.py: SQLite store (logs/leaderboard.db on X), score-desc/time-asc order,
+    limit 1-50, validation, defaults; 8 tests (tests/test_leaderboard.py, 107 total).
+  - X opens L at startup and handles {"t":"task","id":"L","op":"submit"|"top"} ->
+    task_result {ok, entry_id, rank, rows}. Fixed an id clash: submit returns entry_id so the
+    task_result keeps id="L".
+  - Y submits on game over (X-driven and All Edge paths) with source manual/test and the run's
+    placement; state["leaderboard"] caches the rows. Z asks with leaderboard_get; Y forwards the
+    top task and relays {"t":"leaderboard","rows","count"}; if X is down it answers with an error
+    instead of hanging.
+  - U: ui/leaderboard.py (ranked screen, Esc/Enter/click to return); menu entry enabled and the
+    L key opens it; z_client fetches through a short-lived Y connection.
+  - Local evidence: direct X submit -> rank 1; Z leaderboard_get -> same row through Y; 1-HP
+    match (report 20261124-124706) -> second row with source "test"; U screen rendered both rows
+    (ws34_u.png).
+  - Cleanup: X/Y/Z stopped (0 python processes). Lab X still at cda0f52.
+  - Next: WS4.2 comparison report over the WAN link; WS4.3 docs/archive.
+
 END OF SYNC
 

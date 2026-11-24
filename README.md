@@ -62,8 +62,8 @@ The archived plan defines these semantic tasks; the count is not fixed — split
 | **C** | Hit registration: bullets vs bots/player/obstacles | Entity state | X (movable) | `game/hitreg.py` |
 | **D** | Rendering: world, HP bars, particles | Stateful visual | X (movable) | `game/render.py` |
 | **E** | Video encoding: JPEG/H.264 | Stateless per frame | X (movable) | `common/video.py` |
-| **L** | Leaderboard / results store | Persistent SQLite | **X pinned** | Not implemented |
-| **U** | UI / menu / leaderboard display | Local | **Z (not offloaded)** | `ui/menu.py`, `ui/overlay.py`, `ui/config_menu.py`; leaderboard placeholder |
+| **L** | Leaderboard / results store | Persistent SQLite | **X pinned** | `common/leaderboard.py` (SQLite on X; `task`/`task_result`) |
+| **U** | UI / menu / leaderboard display | Local | **Z (not offloaded)** | `ui/menu.py`, `ui/overlay.py`, `ui/config_menu.py`, `ui/leaderboard.py` |
 
 Dependency graph:
 
@@ -97,6 +97,7 @@ Router / protocol (WS3.1/WS3.2 implemented):
 - Y forwards the whole table via `{"t":"placement","tasks":{...}}`; X replies `placement_ok` (with the tasks it owns) or an `error`. **L is rejected from any placement that tries to move it; U never appears in the table.**
 - **All Cloud**: X steps A+B and C itself. **Offload A/B**: Y steps A+B, ships its post-A+B state each tick (`{"t":"state",...}`, ~9 KB at medium workload) and X restores it and runs only C–E. **All Edge**: Y runs A–E and renders to Z; X keeps only L, is told to stay idle and receives neither start nor input.
 - Per-task timings (`sim` = A+B, `hit` = C, `render` = D, `encode` = E, `net` = hop) are collected on both tiers and merged into `state["task_stats"]` and the report; Offload A/B also records the upload rate/total in `environment.offload`.
+- **L** (leaderboard store) stays on X even in All Edge: Y submits `{"t":"task","id":"L","op":"submit",…}` when a match ends and X answers `task_result`; Z asks for the top rows with `{"t":"leaderboard_get","top":n}` and receives `{"t":"leaderboard","rows":[…]}`.
 
 ### Pattern axes
 
@@ -113,9 +114,9 @@ The test plan has `mode` (legacy whole-pipeline), `video_preset` (video) and `pl
 
 ### Implementation status
 
-- **Implemented:** whole-pipeline baseline; A–E game core (split into A+B / C for placement); U menu/overlay/config (partial); H.264/JPEG; Y fallback; test runner/reports; Z test mode; WS2.2 Tk control panel; WS2.3 X runtime `video`/`stats`/`stop`; WS3.1 All Cloud; WS3.2 Offload A/B; WS3.3 All Edge — all with per-task metrics and the state-upload cost.
-- **Partial:** B (no pathfinding); U (leaderboard placeholder); no L.
-- **Planned:** L SQLite on X, leaderboard view and the formal cross-pattern report (WS3.4/WS4.2).
+- **Implemented:** whole-pipeline baseline; A–E game core (split into A+B / C for placement); U menu/overlay/config/leaderboard; H.264/JPEG; Y fallback; test runner/reports; Z test mode; WS2.2 Tk control panel; WS2.3 X runtime `video`/`stats`/`stop`; WS3.1 All Cloud; WS3.2 Offload A/B; WS3.3 All Edge; WS3.4 L (SQLite on X) + U leaderboard view.
+- **Partial:** B (no pathfinding); F–K/M–T task splits are reserved.
+- **Planned:** the formal WS4.2 cross-pattern report over the real WAN link (WS4.3 docs/archive ongoing).
 
 
 
@@ -141,6 +142,7 @@ FYP/
 ├── common/
 │   ├── config.py                # env-overridable addresses, ports, codecs, thresholds
 │   ├── game.py                  # legacy deterministic core (selftest oracle only)
+│   ├── leaderboard.py           # WS3.4 L: SQLite score store (lives on X)
 │   ├── net.py                   # LAN address helper for startup banners
 │   ├── placement.py             # WS3.1 task table, patterns, per-task timings
 │   ├── report.py                # test report JSON/CSV + history
@@ -159,6 +161,7 @@ FYP/
 ├── ui/                          # Z pygame menus and overlays
 │   ├── menu.py
 │   ├── config_menu.py
+│   ├── leaderboard.py           # WS3.4 U: ranked score screen (local on Z)
 │   └── overlay.py
 ├── web/
 │   └── dashboard.html           # live mode/RTT/lag/game state + latency slider
@@ -183,7 +186,8 @@ FYP/
 │   ├── test_panel_model.py      # WS2.2 plan/progress/protocol logic
 │   ├── test_panel_smoke.py      # WS2.2 Tk build + close
 │   ├── test_xstats.py           # WS2.3 rolling encoder stats
-│   └── test_placement.py        # WS3.1 task table / patterns / timings
+│   ├── test_placement.py        # WS3.1 task table / patterns / timings
+│   └── test_leaderboard.py      # WS3.4 L store
 ├── docs/
 │   ├── test-panel.md            # test protocol, reports, panel guide
 │   ├── notes/
@@ -601,6 +605,26 @@ but it renders on the weaker node (1.68 ms vs 0.70 ms) and cannot use X's encode
 an extra hop but keeps the fast renderer; Offload A/B keeps X's fast D/E and pays ~9 KB/tick of
 state upload.
 
+### WS3.4 — L (SQLite on X) and the U leaderboard view (implemented)
+
+**L** is a small SQLite table in `common/leaderboard.py`, opened by X at
+`logs/leaderboard.db`. It is pinned to X in every pattern, including All Edge.
+
+- Y submits on game over (manual or test run) with
+  `{"t":"task","id":"L","op":"submit","entry":{name, score, deaths, workload, seed, placement, source}}`;
+  X answers `task_result` with `{ok, entry_id, rank, rows}`.
+- Z asks for the table with `{"t":"leaderboard_get","top":n}` on its normal data socket; Y
+  forwards `{"t":"task","id":"L","op":"top"}` and relays the answer as
+  `{"t":"leaderboard","rows":[…],"count":n}`.
+- **U** (`ui/leaderboard.py`) is a local pygame screen: menu → **LEADERBOARD (L)** or the `L` key,
+  ranked rows (score desc, then submission time), with `Esc/Enter/click` to return. It renders
+  from the relayed rows only — no game logic, no X/Z dependence beyond the fetch.
+- Rows record `source` (`manual`/`test`) and `placement`, so test runs can be filtered in the
+  report; `name` comes from `FYP_PLAYER` (default `player`).
+- Evidence (local): a direct X submit returned rank 1 and the row, Z's `leaderboard_get` returned
+  the same row through Y, and a 1-HP test match (reported as `game over`) added a second row with
+  `source: test`. The U screen renders both rows (`%TEMP%\ws34_u.png` during the check).
+
 ---
 
 ## Branching and releases
@@ -844,8 +868,8 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
   and All Cloud pattern are live (WS3.1); Offload A/B and All Edge are defined but X cannot skip
   tasks yet (WS3.2/WS3.3), and Y has no local A/B copies. `mode` remains the legacy whole-pipeline
   fallback and is independent of `placement`.
-- **Leaderboard / U partial.** The menu, overlays and config editor exist; the leaderboard display
-  is a placeholder and L (SQLite on X) is not implemented.
+- **Leaderboard / U.** L is a SQLite file on X and U renders the ranked table on Z (WS3.4).
+  Test runs are stored too, tagged `source: test`, so filter them out for a player-only table.
 - **Test panel UI.** WS2.1 (protocol/CLI) and WS2.2 (Tk panel) both exist; the CLI stays the
   scriptable path, the panel the interactive one. Neither renders video itself — watch Z's window
   or the browser dashboard.

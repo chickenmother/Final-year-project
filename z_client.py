@@ -7,6 +7,7 @@ from websockets.asyncio.client import connect
 from common import config as C
 from game.settings import load_config, normalize_config
 from ui.config_menu import ConfigMenu
+from ui.leaderboard import LeaderboardScreen
 from ui.menu import Menu
 from ui.overlay import GameOverMenu, PauseMenu
 try:
@@ -37,6 +38,34 @@ def pattern_keys(name, elapsed):
     return ""
 
 
+async def fetch_leaderboard(top=10, timeout=3.0):
+    """Ask Y for L's top rows (WS3.4); returns ``(rows, error, count)``."""
+    end = time.monotonic() + timeout
+    try:
+        async with connect(C.Y_URI, max_size=1 << 20, compression=None,
+                           ping_interval=C.PING_INTERVAL,
+                           ping_timeout=C.PING_TIMEOUT) as ws:
+            await ws.send(json.dumps({"t": "hello",
+                                      "h264": H264Decoder is not None}))
+            await ws.send(json.dumps({"t": "leaderboard_get", "top": top}))
+            while True:
+                left = end - time.monotonic()
+                if left <= 0:
+                    return [], "no reply from Y", None
+                raw = await asyncio.wait_for(ws.recv(), timeout=left)
+                if not isinstance(raw, (str, bytes, bytearray)):
+                    continue
+                try:
+                    msg = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(msg, dict) and msg.get("t") == "leaderboard":
+                    return (msg.get("rows") or [], msg.get("error"),
+                            msg.get("count"))
+    except (OSError, ConnectionClosed, asyncio.TimeoutError) as exc:
+        return [], f"Y unavailable ({type(exc).__name__})", None
+
+
 async def main():
     pygame.init()
     screen = pygame.display.set_mode((C.WIN_W, C.WIN_H))
@@ -47,6 +76,7 @@ async def main():
     config_menu = ConfigMenu(screen, font)
     pause_menu = PauseMenu(screen, font)
     gameover_menu = GameOverMenu(screen, font)
+    leaderboard_screen = LeaderboardScreen(screen, font)
     os.makedirs("logs", exist_ok=True)
     log_f = open(os.path.join("logs", "log_z.csv"), "w", newline="")
     log = csv.writer(log_f)
@@ -347,6 +377,10 @@ async def main():
                 auto = False
             else:
                 choice = menu.run(last_result, status)
+            if choice and choice.get("action") == "leaderboard":
+                rows, error, count = await fetch_leaderboard()
+                leaderboard_screen.run(rows, error, count)
+                continue
             if choice and choice.get("action") == "config":
                 updated = config_menu.run(game_config)
                 if config_menu.quit:
