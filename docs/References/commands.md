@@ -11,6 +11,8 @@ py -3.13 -m venv venv
 .\venv\Scripts\python.exe tools\test_cli.py --y ws://127.0.0.1:8002 --plan tools\plans\ws2_1_smoke.json
 .\venv\Scripts\python.exe tools\test_cli.py --y ws://127.0.0.1:8002 --plan tools\plans\ws1_3_a1.json
 .\venv\Scripts\python.exe tools\test_panel.py --y ws://127.0.0.1:8002 --plan tools\plans\ws2_1_smoke.json
+.\run_panel.cmd
+.\run_panel.cmd 192.168.0.182 tools\plans\ws3_1_all_cloud.json
 ```
 
 - Ports: X 8001, Y 8000, Y dashboard/test 8002.

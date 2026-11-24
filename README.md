@@ -129,6 +129,7 @@ FYP/
 ├── requirements.txt             # pinned packages (identical on all 3 machines)
 ├── .gitignore                   # venv, caches, logs, secrets, IDE files
 ├── run_local.cmd                # single-PC demo: X, Y and Z on 127.0.0.1
+├── run_panel.cmd                # WS2.2 test control panel (Y_IP [plan.json])
 ├── run_x.cmd / run_y.cmd / run_z.cmd
 ├── selftest.py                  # determinism / resync check (run on X and Y)
 ├── game_config.json             # editable gameplay tuning
@@ -462,6 +463,20 @@ WS2.1 command reference and the report schema: [docs/test-panel.md](docs/test-pa
 
 `tools/test_panel.py` is a stdlib Tk (8.6) panel for the same protocol; `tools/panel_model.py`
 holds its headless plan/progress/protocol logic so it can be unit-tested without a display.
+It is a **desktop window on the Middle Y PC** (not a web page).
+
+```powershell
+# Wait for Middle Y to print "Y ready" first (it must be listening on 8002).
+.\run_panel.cmd                                  # Y on this PC
+.\run_panel.cmd 192.168.0.182                    # Y on another machine
+.\run_panel.cmd 192.168.0.182 tools\plans\ws3_1_all_cloud.json   # open a plan
+
+# or the same thing without the launcher:
+.\venv\Scripts\python.exe tools\test_panel.py --y ws://127.0.0.1:8002
+```
+
+Then: pick a plan (or edit the fields) → **Apply** → **Start**. Pause/Resume/Terminate drive Y;
+the panel auto-connects on open and retries every 2 s if Y is not up yet.
 
 ```powershell
 # Cloud X and Middle Y run normally; start End Z in test mode (or use the panel's button):

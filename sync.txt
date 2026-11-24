@@ -911,5 +911,13 @@ HEAD   : c8fdf02  "WS3.1: task router + All Cloud placement and per-task metrics
     60 ms delay event applied.
   - Validation: 92 tests, selftest hash unchanged; panel closed cleanly.
 
+[2026-11-24 11:45 +09:00 | from Y / home PC — run_panel.cmd launcher]
+  - New run_panel.cmd: run_panel.cmd [Y_IP] [plan.json] -> tools/test_panel.py --y ws://Y_IP:8002.
+    Defaults to 127.0.0.1; optional plan path is forwarded as --plan. Clears SDL_VIDEODRIVER.
+  - README (WS2.2 usage + tree) and docs/References/commands.md updated.
+  - Verified by launching it: python tools/test_panel.py --y ws://127.0.0.1:8002
+    --plan "tools\plans\ws3_1_all_cloud.json" came up; process stopped afterwards.
+  - Docs/launcher only; 92 tests unchanged. No behaviour change in X/Y/Z.
+
 END OF SYNC
 
