@@ -41,6 +41,8 @@ py -3.13 -m venv venv
   `.\\venv\\Scripts\\python.exe tools\\report_peek.py logs\\reports\\<id>.json`.
 - Regression smoke for the three presets (10 s each): `ws3_5_smoke_all_cloud.json`,
   `ws3_5_smoke_offload_ab.json`, `ws3_5_smoke_all_edge.json`.
+- Plan-schema gate (loads and validates every bundled plan):
+  `.\\venv\\Scripts\\python.exe tools\\check_plans.py`.
 - Isolated-port stack for a second session (does not touch 8000/8002):
   `$env:FYP_X_PORT="8011"` for X; `$env:FYP_X_PORT="8011"; $env:FYP_Y_PORT_Z="8010";
   $env:FYP_Y_PORT_DASH="8012"` for Y; `$env:FYP_Y_URI="ws://127.0.0.1:8010"; $env:FYP_TEST="1"`

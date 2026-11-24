@@ -173,6 +173,7 @@ FYP/
 │   ├── test_cli.py              # WS2.1 test driver
 │   ├── compare_reports.py       # WS4.2 cross-pattern comparison (md/csv)
 │   ├── report_peek.py           # print one report's summary + WS3.5 chain fields
+│   ├── check_plans.py           # load/validate every bundled plan (schema gate)
 │   ├── test_panel.py            # WS2.2 Tk control panel (Tk + websocket shell)
 │   ├── panel_model.py           # WS2.2 headless panel logic (unit-tested)
 │   ├── autoplay_z.ps1           # immortal config + unattended Z launcher

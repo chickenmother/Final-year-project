@@ -28,7 +28,7 @@ Only one Y and one Z at a time. Placement is not fixed; I test combinations.
   (`common/placement.py`), `common/pipeline.py` (routing, counters, `stage`/`final`/`stride`/
   `pixels` wire format), `step_a`/`step_b` (`game/simulation.py`), generic chain executors in
   `y_gateway.py`/`x_server.py`, panel A–E rows, report `crossings`/`stream_tier`/`pixels_format`/
-  `channels`/`stalls`/`encode_fps`/`stage_p50`. 150 tests.
+  `channels`/`stalls`/`encode_fps`/`stage_p50`. 151 tests.
 - Lab X pulled to `cda0f52` (WS1.2) and needs a pull for WS2.3/WS3.x/WS3.5; those E2Es used a
   local X. No X/Y/Z left running (the E2E tiers were stopped). One Y and one Z at a time.
 - WS1.3 complete: `20261123-153034`. WS2.2: `20261123-161423`. WS2.3: `20261123-164025`.
