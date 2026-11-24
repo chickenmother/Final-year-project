@@ -28,3 +28,6 @@ py -3.13 -m venv venv
 - Comparison (WS4.2): `.\venv\Scripts\python.exe tools\compare_reports.py --workload medium`
   (add `--out logs\reports\comparison.md --csv logs\reports\comparison.csv`; `--ids` for explicit
   reports).
+- Matched WAN runs (same workload, ~60 s each): `ws3_1_all_cloud_medium.json`,
+  `ws3_2_offload_ab.json`, `ws3_3_all_edge.json`, then the comparison above.
+  All Edge cannot use the A1 X preset (Y encodes), so it runs `current` by design.

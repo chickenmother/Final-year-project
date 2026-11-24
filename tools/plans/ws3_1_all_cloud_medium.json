@@ -1,0 +1,12 @@
+{
+  "name": "WS3.1 All Cloud (medium, A1)",
+  "warmup_s": 5,
+  "duration_s": 60,
+  "seed": 12345,
+  "workload": "medium",
+  "mode": "auto",
+  "video_preset": "A1",
+  "placement": "all_cloud",
+  "input_pattern": "strafe",
+  "events": []
+}

@@ -179,6 +179,7 @@ FYP/
 │       ├── ws1_3_a1.json        # WS1.3 post-fix (preset A1)
 │       ├── ws2_1_smoke.json     # WS2.1 runner smoke
 │       ├── ws3_1_all_cloud.json # WS3.1 All Cloud + preset A1
+│       ├── ws3_1_all_cloud_medium.json # WS3.1 All Cloud, matched medium run
 │       ├── ws3_2_offload_ab.json # WS3.2 Offload A/B (medium) + preset A1
 │       └── ws3_3_all_edge.json  # WS3.3 All Edge (medium)
 ├── tests/
