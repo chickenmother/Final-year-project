@@ -234,10 +234,22 @@ def metrics(state):
         "x_video": video_label(state.get("x_video")),
         "placement": describe_placement(state.get("placement")),
         "task_sim": task_line(state.get("task_stats"), "sim"),
+        "task_hit": task_line(state.get("task_stats"), "hit"),
         "task_render": task_line(state.get("task_stats"), "render"),
         "task_encode": task_line(state.get("task_stats"), "encode"),
+        "offload": offload_line(state.get("offload")),
         "z_decode": fmt(z_stats.get("decode"), 1),
     }
+
+
+def offload_line(info):
+    """``61 KB/s · 74 kB`` for the Offload A/B state upload."""
+    info = info or {}
+    if not info.get("n") and not info.get("total"):
+        return "-"
+    rate = fmt(info.get("kb_s"), 1)
+    total = _number(info.get("total")) / 1024
+    return f"{rate} KB/s · {fmt(total, 0)} kB"
 
 
 def task_line(task_stats, task):

@@ -154,5 +154,57 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg["player"]["speed"], 1)
 
 
+class StepSplitTests(unittest.TestCase):
+    """WS3.2: A+B (step_ab) and C (step_c) must equal the old fused step()."""
+
+    @staticmethod
+    def _script(i):
+        keys = "d" if i % 40 < 20 else "a"
+        if i % 7 == 0:
+            keys += " "
+        return keys
+
+    def test_split_matches_fused_step(self):
+        fused = Game("medium", seed=11)
+        split = Game("medium", seed=11)
+        for i in range(600):
+            keys = self._script(i)
+            fused.step(keys)
+            split.step_ab(keys)
+            split.step_c()
+        self.assertEqual(split.digest(), fused.digest())
+        self.assertEqual(split.score, fused.score)
+        self.assertEqual(split.deaths, fused.deaths)
+        self.assertEqual(split.tick, fused.tick)
+
+    def test_contacts_travel_in_the_snapshot(self):
+        game = Game("light", seed=7)
+        obstacle = game.obstacles[0]
+        game.player.rect.center = obstacle.rect.center
+        game.step_ab("")
+        self.assertTrue(game.contacts)          # obstacle contact recorded
+        remote = Game("light", seed=1)
+        remote.restore(json.loads(json.dumps(game.snapshot())))
+        self.assertEqual(remote.contacts, game.contacts)
+        remote.step_c()
+        game.step_c()
+        self.assertEqual(remote.digest(), game.digest())
+
+    def test_remote_c_matches_local_c(self):
+        """Y steps A+B, X restores and runs C: both must stay identical."""
+        local = Game("medium", seed=23)
+        remote = Game("medium", seed=99)
+        for i in range(400):
+            keys = self._script(i)
+            local.step_ab(keys)
+            remote.restore(json.loads(json.dumps(local.snapshot())),
+                           effects=False)
+            local.step_c()
+            remote.step_c()
+            if i % 50 == 0:
+                self.assertEqual(remote.digest(), local.digest())
+        self.assertEqual(remote.digest(), local.digest())
+
+
 if __name__ == "__main__":
     unittest.main()

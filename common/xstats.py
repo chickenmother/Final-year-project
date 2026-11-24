@@ -13,7 +13,7 @@ import time
 from common.testplan import percentile
 
 EMPTY = {"fps": 0.0, "encode_p50": None, "encode_p95": None,
-         "sim_p50": None, "render_p50": None,
+         "sim_p50": None, "hit_p50": None, "render_p50": None,
          "keyframes_s": 0.0, "frame_kb": 0.0, "frames": 0}
 
 
@@ -23,15 +23,16 @@ class FrameStats:
     def __init__(self, window_s=2.0, clock=None):
         self.window_s = max(0.5, float(window_s))
         self._clock = clock or time.monotonic
-        # (t, frame_ms, nbytes, key, sim_ms, render_ms); frame_ms is render +
-        # encode, kept identical to the WS1/WS2 log column for comparability.
+        # (t, frame_ms, nbytes, key, sim_ms, hit_ms, render_ms); frame_ms is
+        # render + encode, kept identical to the WS1/WS2 log column.
         self._frames = collections.deque()
 
     def add(self, encode_ms, nbytes, key=False, when=None, sim_ms=None,
-            render_ms=None):
+            render_ms=None, hit_ms=None):
         now = self._clock() if when is None else float(when)
         self._frames.append((now, float(encode_ms), int(nbytes), bool(key),
-                             _optional(sim_ms), _optional(render_ms)))
+                             _optional(sim_ms), _optional(hit_ms),
+                             _optional(render_ms)))
         self._prune(now)
 
     def reset(self):
@@ -61,12 +62,14 @@ class FrameStats:
         sizes = [frame[2] for frame in self._frames]
         keys = sum(1 for frame in self._frames if frame[3])
         sims = [frame[4] for frame in self._frames if frame[4] is not None]
-        renders = [frame[5] for frame in self._frames if frame[5] is not None]
+        hits = [frame[5] for frame in self._frames if frame[5] is not None]
+        renders = [frame[6] for frame in self._frames if frame[6] is not None]
         return {
             "fps": round(len(self._frames) / span, 1),
             "encode_p50": round(percentile(encodes, 0.50), 2),
             "encode_p95": round(percentile(encodes, 0.95), 2),
             "sim_p50": (round(percentile(sims, 0.50), 2) if sims else None),
+            "hit_p50": (round(percentile(hits, 0.50), 2) if hits else None),
             "render_p50": (round(percentile(renders, 0.50), 2)
                            if renders else None),
             "keyframes_s": round(keys / span, 2),

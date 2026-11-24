@@ -1,8 +1,9 @@
 # Test Control Panel
 
 Status: **WS2.1 implemented** (`1c20dce`), **WS2.2 implemented**
-(`tools/test_panel.py`), **WS2.3 implemented** (X runtime `video`/`stats`/`stop`) and
-**WS3.1 implemented** (task router + All Cloud placement).
+(`tools/test_panel.py`), **WS2.3 implemented** (X runtime `video`/`stats`/`stop`),
+**WS3.1 implemented** (task router + All Cloud) and **WS3.2 implemented**
+(Offload A/B with the A+B/C split and the state upload).
 This document is the protocol/report reference; the README has the short
 version.
 
@@ -59,7 +60,7 @@ A plan is plain JSON. The full example lives in
 |---|---|---|
 | `workload` | `light`, `medium`, `heavy` | game profile (bots/obstacles/bullets) |
 | `mode` (legacy) | `auto`, `cloud`, `edge` | Y whole-pipeline: RTT auto-switch, force X, force Y |
-| `placement` | `legacy`, `all_cloud`, `offload_ab`, `all_edge` | WS3.1 task table (All Cloud live; the others wait for WS3.2/3.3) |
+| `placement` | `legacy`, `all_cloud`, `offload_ab`, `all_edge` | WS3.1/WS3.2 task table (All Cloud and Offload A/B live; All Edge waits for WS3.3) |
 | `video_preset` | `current`, `A0`, `A1`, `A2`, `intra` | recorded in WS2.1; applied to X at runtime (WS2.3) |
 | `input_pattern` | `idle`, `strafe`, `circle`, `figure8`, `shoot` | deterministic Z input |
 | `warmup_s` | 0–60 | excluded from the measurement |
@@ -125,7 +126,12 @@ the timeline delay events. WS2.3 adds the runtime control channel:
 {"t":"stats","on":true}
 {"t":"stop"}
 {"t":"placement","tasks":{"A":"X","B":"X","C":"X","D":"X","E":"X","L":"X"}}
+{"t":"state","tick":1234,"seq":77,"keys":"d ","s":{"tick":1234,"bots":[...], ...}}
 ```
+
+The last one is WS3.2's Offload A/B channel: Y steps A+B and ships its post-A+B snapshot
+(`game.snapshot()`, including the `contacts` queue), X restores it, runs C and streams. `in`
+keeps its WS1 meaning (A+B+C on X).
 
 X answers `{"t":"video_ok","encoder":"libx264","gop":120,"size":[960,540],
 "bitrate":4000000,"intra_refresh":false}` (or `{"t":"error","command":"video",
@@ -160,7 +166,7 @@ Y writes `logs/reports/<id>.json` and `.csv`:
 
 - **meta** — id, date/time, start/end, duration, plan, environment
   (thresholds, game config, Y version, video preset/runtime/applied, placement table/applied,
-  per-task `task_stats`, paused total).
+  per-task `task_stats`, Offload A/B `offload`, paused total).
 - **events** — applied timeline events with elapsed/wall times.
 - **samples** — 5 Hz: `t`, mode, RTT, injected delay, e2e, Z↔Y RTT, X/Y/Z FPS,
   `x_encode`/`x_encode_p95`/`x_kf` (WS2.3), Z decode, tick/score/HP, paused flag.
@@ -262,29 +268,48 @@ Caveats:
 - Validation: `L` is pinned to X and a table that moves it is rejected; `U` is
   local to Z and cannot appear in a table; unknown tasks/tiers are rejected.
 - X confirms with `placement_ok` (Y stores `state["x_placement"]` and
-  `placement_applied: true`) or an `error`. X still runs the whole A–E core, so
-  a pattern that moves A/B or C–E out of X is rejected with
-  `X cannot skip A, B yet (WS3.2)` and `placement_applied` stays `false`.
-- Per-task metrics: Y times `sim` (A–C inside `Game.step`), its fallback
-  `render`/`encode`, and merges X's `sim_p50`/`render_p50`/`encode_p50` plus
-  the X↔Y and Z↔Y hops into `state["task_stats"]`, e.g.
+  `placement_applied: true`) or an `error`. X accepts a table when it owns
+  C, D, E and either all of A/B (All Cloud) or neither (Offload A/B);
+  All Edge is still rejected until WS3.3.
+- Per-task metrics: Y times `sim` (A+B) and `hit` (C) plus its fallback
+  `render`/`encode`, and merges X's `sim_p50`/`hit_p50`/`render_p50`/
+  `encode_p50` plus the X↔Y and Z↔Y hops into `state["task_stats"]`, e.g.
 ```json
-{"sim": {"Y": {"n": 120, "p50": 0.02, "p95": 0.03}, "X": {"n": 121, "p50": 0.02}},
- "render": {"X": {"n": 121, "p50": 0.46}},
- "encode": {"X": {"n": 121, "p50": 5.21}},
- "net": {"X": {"n": 1, "p50": 2.55}, "Z": {"n": 1, "p50": 3.5}}}
+{"sim": {"Y": {"n": 120, "p50": 0.06, "p95": 0.08}, "X": {"n": 121, "p50": 0.02}},
+ "hit": {"Y": {"n": 120, "p50": 0.01}, "X": {"n": 121, "p50": 0.01}},
+ "render": {"X": {"n": 121, "p50": 0.6}},
+ "encode": {"X": {"n": 121, "p50": 5.65}},
+ "net": {"X": {"n": 1, "p50": 1.98}, "Z": {"n": 1, "p50": 1.9}}}
 ```
 
 `x_stats.encode_p50` stays "render + encode" (the WS1/WS2 log column) for
-comparability; `render_p50` and `sim_p50` are the new split.
+comparability; `render_p50`, `sim_p50` and `hit_p50` are the splits.
 
 When `mode: auto`, a non-legacy placement pins rendering to the pattern's D tier
 (`render_tier()`), so the RTT fallback cannot move D to Y mid-run and turn an
 All Cloud capture into a Y-rendered one.
 
 The report records `environment.placement`, `placement_table`,
-`placement_applied` and `task_stats`, so All Cloud can be compared with the
-later Offload/All Edge runs.
+`placement_applied`, `task_stats` and (Offload A/B) `offload`, so All Cloud can
+be compared with the later patterns.
+
+## WS3.2 — Offload A/B
+
+`Game.step()` is split into `step_ab()` and `step_c()`; `step()` still calls both,
+and `tests/test_game_core.py` proves the split is behaviourally identical (600
+ticks of medium workload, plus a remote-C tick-for-tick comparison).
+
+- Y steps A+B every tick, ships the post-A+B snapshot as
+  `{"t":"state","tick","seq","keys","s"}`, then applies C to its own copy so the
+  fallback stays valid. Pending damage found during A/B travels in `s["contacts"]`.
+- X restores the snapshot (`restore(state, effects=False)` keeps X's own
+  particles), runs C, then renders/encodes D/E as usual.
+- `state["offload"]` = `{"n", "bytes", "kb_s", "total"}`; the report stores it in
+  `environment.offload`. Medium workload costs ~9 KB per tick (~530 KB/s at
+  60 Hz) — that upload is the price of keeping A/B at the edge.
+- C runs on **both** tiers (X applies it from the upload, Y applies it locally to
+  stay authoritative); the duplication is deliberate and needed for the
+  pre-placed fallback copy.
 
 ## Environment
 
@@ -312,7 +337,8 @@ The test config used by the unattended runs should keep the player alive:
 | Report has no X encode | X not linked, or `stats` never subscribed | WS2.3: the panel subscribes on start; check `x_stats` in Y's state and `X stats: on` in X's log |
 | `x_video` replies “Cloud X is not linked” | Y has no X connection (mode Y) | start/reconnect X; presets then apply without restarting X |
 | `video_ok` never arrives | encoder rebuild failed | check X's log for `video: encoder rebuild failed`; the previous encoder keeps streaming |
-| Placement shows `applied: false` | X rejected the table (it cannot skip tasks yet) | expected for `offload_ab`/`all_edge` until WS3.2/3.3; use `all_cloud` |
+| Placement shows `applied: false` | X rejected the table | All Cloud and Offload A/B are supported; All Edge is not yet (WS3.3) |
+| `offload` shows `-` | the run is not using Offload A/B | set `placement: offload_ab`; All Cloud has no state upload |
 | `task_stats` empty | no X link, or the run has not started | start a plan with X linked; `sim` comes from Y's tick loop |
 | Active tier flips to Y during a placement run | a placement run now pins rendering to its D tier | if it still flips, check `mode` is `auto` and the placement table is non-legacy |
 | Pause does not resume | `pause` event with `hold_s`, or panel still paused | resume from the panel; verify `state["test"]["state"]` |
@@ -326,6 +352,7 @@ The test config used by the unattended runs should keep the player alive:
 - `common/report.py` — report JSON/CSV, history, safe load.
 - `common/xstats.py` — WS2.3 rolling encoder stats (fps, encode p50/p95, keyframes/s).
 - `common/placement.py` — WS3.1 task table, patterns, per-task timings.
+- `game/simulation.py` — WS3.2 `step_ab()` / `step_c()` split (`step()` = both).
 - `x_server.py` — game engine, H.264 renderer and the WS2.3 `video`/`stats`/`stop`
   handlers plus the WS3.1 `placement` acknowledgement.
 - `y_gateway.py` — `TestRunner`, dashboard commands, delay/mode timeline,

@@ -12,6 +12,7 @@ from common.placement import (
     describe as describe_placement,
     merge_metrics,
     pattern_table,
+    remote_ab as placement_remote_ab,
     render_tier,
     validate as validate_placement,
 )
@@ -32,7 +33,7 @@ state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
          "paused": False, "mode_override": None, "test": None,
          "z_stats": {}, "x_stats": {}, "x_video": {}, "x_fps": 0.0, "y_fps": 0.0,
          "placement": {}, "placement_pattern": "legacy", "placement_applied": False,
-         "x_placement": {}, "task_stats": {},
+         "x_placement": {}, "task_stats": {}, "offload": {}, "remote_ab": False,
          "reports": []}
 inp = {"keys": "", "seq": 0, "latch": False}
 zs = {}                # Z connection -> frame queue + capability slot
@@ -48,6 +49,22 @@ x_frame_times = collections.deque()     # X frames received (for x_fps)
 y_frame_times = collections.deque()     # frames broadcast by Y (for y_fps)
 test_runner = None
 task_stats = TaskStats()               # per-task timings measured on Y (WS3.1)
+offload = {"n": 0, "bytes": 0, "kb_s": 0.0, "total": 0}   # WS3.2 state upload
+offload_window = collections.deque()   # (t, bytes) over the last second
+
+
+def count_offload(nbytes):
+    """Track the state upload rate Y pays for Offload A/B (WS3.2)."""
+    now = time.monotonic()
+    offload_window.append((now, int(nbytes)))
+    while offload_window and offload_window[0][0] < now - 1.0:
+        offload_window.popleft()
+    sent = sum(size for _, size in offload_window)
+    offload["n"] = len(offload_window)
+    offload["bytes"] = sent
+    offload["total"] += int(nbytes)
+    offload["kb_s"] = round(sent / 1024, 1)
+    state["offload"] = dict(offload)
 REPORT_DIR = os.path.join("logs", "reports")
 
 
@@ -264,9 +281,20 @@ async def tick_loop():
             keys += " "                # a short tap between two ticks is not lost
         inp["latch"] = False
         seq = inp["seq"]
+        # WS3.2: Y always runs A+B then C (same code as X), so the fallback copy
+        # stays valid. For Offload A/B the post-A/B state is shipped to X
+        # between the two phases, which is exactly the cost being measured.
         t_sim = time.perf_counter()
-        game.step(keys)                # Y ALWAYS runs the game (same code as X) -> instant fallback
+        game.step_ab(keys)
         task_stats.add("sim", (time.perf_counter() - t_sim) * 1000, "Y")
+        if state.get("remote_ab"):
+            payload = json.dumps({"t": "state", "tick": game.tick, "seq": seq,
+                                  "keys": keys, "s": game.snapshot()})
+            count_offload(len(payload))
+            up.put(payload)
+        t_hit = time.perf_counter()
+        game.step_c()
+        task_stats.add("hit", (time.perf_counter() - t_hit) * 1000, "Y")
         state["tick"] = game.tick
         state["game"] = {
             "hp": max(0, game.player.hp),
@@ -467,6 +495,8 @@ class TestRunner:
         self.report_paths = None
         self.report_id = report_mod.new_id()
         paused = False
+        offload_window.clear()
+        offload["total"] = 0
         state["paused"] = False
         state["mode_override"] = plan.mode_override()
         set_delay(0)
@@ -490,13 +520,12 @@ class TestRunner:
         state["placement"] = table or {}
         state["placement_pattern"] = plan.placement
         state["placement_applied"] = False
+        state["remote_ab"] = placement_remote_ab(table)
         if table is None:
             print(f"[{time.strftime('%X')}] test: placement legacy "
                   f"(whole-pipeline)")
         elif state.get("linked"):
-            send_x_control({"t": "placement",
-                            "tasks": {task: tier for task, tier in table.items()
-                                      if tier == "X"}})
+            send_x_control({"t": "placement", "tasks": dict(table)})
             print(f"[{time.strftime('%X')}] test: placement {plan.placement} "
                   f"({describe_placement(table)})")
         else:
@@ -750,6 +779,7 @@ class TestRunner:
             "placement_table": state.get("placement") or {},
             "placement_applied": state.get("placement_applied", False),
             "task_stats": state.get("task_stats") or {},
+            "offload": dict(offload),
             "paused_s": round(self.paused_total, 2),
             "game_config": getattr(game, "config", None),
             "mode_final": state.get("mode"),
@@ -927,13 +957,12 @@ async def dash_handler(ws):
                         state["placement_pattern"] = name
                     state["placement"] = table or {}
                     state["placement_applied"] = False
+                    state["remote_ab"] = placement_remote_ab(table)
                     if table is None:
                         print(f"[{time.strftime('%X')}] placement: legacy "
                               f"whole-pipeline")
-                    elif not send_x_control({
-                            "t": "placement",
-                            "tasks": {task: tier for task, tier in table.items()
-                                      if tier == "X"}}):
+                    elif not send_x_control({"t": "placement",
+                                             "tasks": dict(table)}):
                         raise RuntimeError("Cloud X is not linked")
                     else:
                         print(f"[{time.strftime('%X')}] placement: "

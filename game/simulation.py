@@ -37,6 +37,7 @@ class Game:
         self.game_over = False
         self.prev_space = False
         self.player_hit_cooldown = 0.0
+        self.contacts = []              # WS3.2: damage queued by step_ab for step_c
         self.reset()
 
     # ---------------- setup ----------------
@@ -57,6 +58,7 @@ class Game:
         self.game_over = False
         self.prev_space = False
         self.player_hit_cooldown = 0.0
+        self.contacts = []
         self.effects.clear()
         self._spawn_obstacles(self.workload.obstacles)
         self._spawn_bots(self.workload.bots)
@@ -164,68 +166,24 @@ class Game:
         )
 
     # ---------------- frame ----------------
-    def _update_bullet(self, bullet, dt):
-        bullet.rect.x += int(bullet.vx * dt)
-        bullet.rect.y += int(bullet.vy * dt)
-        if not (0 <= bullet.rect.centerx <= self.workload.width):
-            return "remove"
-        if not (0 <= bullet.rect.centery <= self.workload.height):
-            return "remove"
-
-        for obstacle in self.grid.query(bullet.rect):
-            if obstacle.hp <= 0:
-                continue
-            if bullet.rect.colliderect(obstacle.rect):
-                if apply_damage(obstacle, bullet.damage):
-                    obstacle.hp = 0
-                    self._explode(obstacle.rect.centerx, obstacle.rect.centery,
-                                  (180, 160, 140))
-                    if bullet.owner == "player":
-                        self.score += 10
-                return "remove"
-
-        if bullet.owner == "player":
-            for bot in self.bots:
-                if bot.hp <= 0:
-                    continue
-                if bullet.rect.colliderect(bot.rect):
-                    if apply_damage(bot, bullet.damage):
-                        bot.hp = 0
-                        self._explode(bot.rect.centerx, bot.rect.centery)
-                        self.score += 100
-                    return "remove"
-        else:
-            if bullet.rect.colliderect(self.player.rect):
-                self.player.hp -= bullet.damage
-                return "remove"
-        return None
-
-    def _update_bot(self, bot, dt):
-        tune = self.tuning.bot
-        dx = self.player.rect.centerx - bot.rect.centerx
-        dy = self.player.rect.centery - bot.rect.centery
-        dist = math.hypot(dx, dy) or 1.0
-        if dist > tune.stop_range:
-            bot.rect.x += int(bot.speed * dx / dist)
-            bot.rect.y += int(bot.speed * dy / dist)
-        elif dist < tune.retreat_range:
-            bot.rect.x -= int(bot.speed * dx / dist)
-            bot.rect.y -= int(bot.speed * dy / dist)
-
-        for obstacle in self.grid.query(bot.rect):
-            if bot.rect.colliderect(obstacle.rect):
-                px, py = push_out(bot.rect, obstacle.rect)
-                bot.rect.x += int(px)
-                bot.rect.y += int(py)
-        self._clamp(bot.rect)
-
-        bot.fire_cooldown -= dt
-        if dist < tune.fire_range and bot.fire_cooldown <= 0.0:
-            self._bot_shoot(bot)
-            span = tune.fire_cooldown_max - tune.fire_cooldown_min
-            bot.fire_cooldown = tune.fire_cooldown_min + self.rng.random() * span
-
     def step(self, keys):
+        """Full pipelined tick: A+B (:meth:`step_ab`) then C (:meth:`step_c`).
+
+        The split exists for WS3.2 task placement: one tier can run A/B and the
+        other C.  Calling ``step`` is exactly the pre-WS3.2 behaviour, and
+        ``tests/test_game_core.py`` asserts the two paths stay identical.
+        """
+        self.step_ab(keys)
+        self.step_c()
+
+    def step_ab(self, keys):
+        """A (simulation/physics) + B (bot AI); records contacts, no damage.
+
+        Pending damage is queued in ``self.contacts`` so :meth:`step_c` can
+        apply it here or on the tier that owns C; the queue travels in
+        :meth:`snapshot` for the Offload A/B pattern.
+        """
+        self.contacts = []
         if self.game_over:
             return
         dt = 1.0 / max(1, self.workload.tick_rate)
@@ -246,9 +204,7 @@ class Game:
                 px, py = push_out(self.player.rect, obstacle.rect)
                 self.player.rect.x += int(px)
                 self.player.rect.y += int(py)
-                if self.player_hit_cooldown <= 0.0:
-                    self.player.hp -= self.tuning.player.obstacle_damage
-                    self.player_hit_cooldown = self.tuning.player.obstacle_hit_cooldown
+                self.contacts.append(["player_obstacle"])
                 break
 
         space = " " in keys
@@ -259,15 +215,31 @@ class Game:
         for bot in self.bots:
             self._update_bot(bot, dt)
 
+        self.bullets = [bullet for bullet in self.bullets
+                        if self._move_bullet(bullet, dt)]
+
+    def step_c(self):
+        """C: hit registration — damage, score, pruning, waves, death."""
+        contacts, self.contacts = self.contacts, []
+        if self.game_over:
+            return
+        dt = 1.0 / max(1, self.workload.tick_rate)
+
+        if any(event[0] == "player_obstacle" for event in contacts):
+            if self.player_hit_cooldown <= 0.0:
+                self.player.hp -= self.tuning.player.obstacle_damage
+                self.player_hit_cooldown = self.tuning.player.obstacle_hit_cooldown
+
         kept = []
         for bullet in self.bullets:
-            if self._update_bullet(bullet, dt) != "remove":
+            if not self._resolve_bullet(bullet):
                 kept.append(bullet)
         self.bullets = kept
 
-        self.bots = [b for b in self.bots if b.hp > 0]
+        self.bots = [bot for bot in self.bots if bot.hp > 0]
         before = len(self.obstacles)
-        self.obstacles = [o for o in self.obstacles if o.hp > 0]
+        self.obstacles = [obstacle for obstacle in self.obstacles
+                          if obstacle.hp > 0]
         if len(self.obstacles) != before:
             self.grid.rebuild(self.obstacles)
 
@@ -295,6 +267,71 @@ class Game:
             count = min(self.workload.bots + self.wave * 2, self.workload.bots * 2)
             self._spawn_bots(count)
 
+    def _update_bot(self, bot, dt):
+        tune = self.tuning.bot
+        dx = self.player.rect.centerx - bot.rect.centerx
+        dy = self.player.rect.centery - bot.rect.centery
+        dist = math.hypot(dx, dy) or 1.0
+        if dist > tune.stop_range:
+            bot.rect.x += int(bot.speed * dx / dist)
+            bot.rect.y += int(bot.speed * dy / dist)
+        elif dist < tune.retreat_range:
+            bot.rect.x -= int(bot.speed * dx / dist)
+            bot.rect.y -= int(bot.speed * dy / dist)
+
+        for obstacle in self.grid.query(bot.rect):
+            if bot.rect.colliderect(obstacle.rect):
+                px, py = push_out(bot.rect, obstacle.rect)
+                bot.rect.x += int(px)
+                bot.rect.y += int(py)
+        self._clamp(bot.rect)
+
+        bot.fire_cooldown -= dt
+        if dist < tune.fire_range and bot.fire_cooldown <= 0.0:
+            self._bot_shoot(bot)
+            span = tune.fire_cooldown_max - tune.fire_cooldown_min
+            bot.fire_cooldown = tune.fire_cooldown_min + self.rng.random() * span
+
+    def _move_bullet(self, bullet, dt):
+        """A: integrate one bullet; False when it left the arena."""
+        bullet.rect.x += int(bullet.vx * dt)
+        bullet.rect.y += int(bullet.vy * dt)
+        if not (0 <= bullet.rect.centerx <= self.workload.width):
+            return False
+        if not (0 <= bullet.rect.centery <= self.workload.height):
+            return False
+        return True
+
+    def _resolve_bullet(self, bullet):
+        """C: apply one bullet's collision; True when it should be removed."""
+        for obstacle in self.grid.query(bullet.rect):
+            if obstacle.hp <= 0:
+                continue
+            if bullet.rect.colliderect(obstacle.rect):
+                if apply_damage(obstacle, bullet.damage):
+                    obstacle.hp = 0
+                    self._explode(obstacle.rect.centerx, obstacle.rect.centery,
+                                  (180, 160, 140))
+                    if bullet.owner == "player":
+                        self.score += 10
+                return True
+
+        if bullet.owner == "player":
+            for bot in self.bots:
+                if bot.hp <= 0:
+                    continue
+                if bullet.rect.colliderect(bot.rect):
+                    if apply_damage(bot, bullet.damage):
+                        bot.hp = 0
+                        self._explode(bot.rect.centerx, bot.rect.centery)
+                        self.score += 100
+                    return True
+        else:
+            if bullet.rect.colliderect(self.player.rect):
+                self.player.hp -= bullet.damage
+                return True
+        return False
+
     # ---------------- sync ----------------
     def snapshot(self):
         v, internal, g = self.rng.getstate()
@@ -311,10 +348,12 @@ class Game:
                      for b in self.bullets],
             obstacles=[[o.rect.x, o.rect.y, o.rect.w, o.rect.h, o.hp]
                        for o in self.obstacles],
+            contacts=[list(event) for event in self.contacts],
             rng=[v, list(internal), g],
         )
 
-    def restore(self, state):
+    def restore(self, state, effects=True):
+        """Load a snapshot; ``effects=False`` keeps local particles (Offload A/B)."""
         name = state.get("workload")
         if name and name != self.workload.name:
             self.workload = profile_from_config(self.config, name)
@@ -351,7 +390,9 @@ class Game:
             self.obstacles.append(obstacle)
         v, internal, g = state["rng"]
         self.rng.setstate((v, tuple(internal), g))
-        self.effects.clear()
+        self.contacts = [list(event) for event in (state.get("contacts") or [])]
+        if effects:
+            self.effects.clear()
         self.grid.rebuild(self.obstacles)
 
     def digest(self):

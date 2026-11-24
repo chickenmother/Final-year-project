@@ -9,6 +9,7 @@ from common.placement import (
     merge_metrics,
     owners,
     pattern_table,
+    remote_ab,
     render_tier,
     validate,
 )
@@ -85,6 +86,12 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(render_tier(pattern_table("offload_ab")), "X")
         self.assertEqual(render_tier(pattern_table("all_edge")), "Y")
         self.assertIsNone(render_tier({}))
+
+    def test_remote_ab_only_for_offload(self):
+        self.assertFalse(remote_ab(pattern_table("all_cloud")))
+        self.assertTrue(remote_ab(pattern_table("offload_ab")))
+        self.assertTrue(remote_ab(pattern_table("all_edge")))
+        self.assertFalse(remote_ab({}))
 
 
 class TaskStatsTests(unittest.TestCase):

@@ -87,6 +87,7 @@ async def handler(ws):
     z_h264, force_key, streaming = False, True, True
     paused, playing = False, False
     stats_on = False
+    remote_ab = False
     print(f"Y connected from {ws.remote_address}")
     lock = asyncio.Lock()
 
@@ -198,9 +199,9 @@ async def handler(ws):
                 await send(json.dumps({"t": "stopped"}))
                 print(f"[{time.strftime('%X')}] X stopped by request")
             elif t == "placement":
-                # WS3.1: Y's router tells X which tasks it owns. X still runs
-                # the full A-E core, so a pattern that moves A/B (or C-E) out
-                # of X is rejected until WS3.2 implements the sub-pipelines.
+                # WS3.1/WS3.2: Y's router tells X which tasks it owns.
+                # All Cloud runs A-E on X; Offload A/B moves A+B to Y, so X
+                # restores the uploaded state and runs only C-E.
                 try:
                     table = validate_placement(m.get("tasks") or {})
                 except PlacementError as exc:
@@ -208,16 +209,20 @@ async def handler(ws):
                                            "message": str(exc)}))
                     continue
                 owned = [task for task in TASKS if table.get(task) == "X"]
-                missing = [task for task in ("A", "B", "C", "D", "E")
-                           if task not in owned]
-                if missing:
+                missing = [task for task in ("C", "D", "E") if task not in owned]
+                ab_on_y = table.get("A") == "Y" and table.get("B") == "Y"
+                ab_on_x = "A" in owned and "B" in owned
+                if missing or not (ab_on_y or ab_on_x):
                     await send(json.dumps({
                         "t": "error", "command": "placement",
-                        "message": f"X cannot skip {', '.join(missing)} yet "
-                                   f"(WS3.2)"}))
+                        "message": ("X needs C, D, E and either all of A/B or "
+                                    "neither (WS3.2/WS3.3): "
+                                    f"{', '.join(missing) or 'A/B split'}")}))
                     continue
                 placement_owner = owned
-                print(f"[{time.strftime('%X')}] X placement: tasks {owned}")
+                remote_ab = ab_on_y
+                print(f"[{time.strftime('%X')}] X placement: tasks {owned}" +
+                      (" (A/B from Y state)" if remote_ab else ""))
                 await send(json.dumps({"t": "placement_ok",
                                        "tasks": {task: "X" for task in owned}}))
             elif t == "start":
@@ -238,13 +243,25 @@ async def handler(ws):
                       f"workload={game.workload.name} seed={game.seed} "
                       f"hp={game.player.max_hp} bots={game.workload.bots} "
                       f"obstacles={game.workload.obstacles}")
-            elif t == "in":
+            elif t in ("in", "state"):
                 if not playing:
                     continue
-                if not paused and m["tick"] == game.tick + 1:
+                if t == "in":
+                    if paused or m["tick"] != game.tick + 1:
+                        continue
+                    # All Cloud: X runs A+B here, C below (same split as Y).
                     t_sim = time.perf_counter()
-                    game.step(m["keys"])
+                    game.step_ab(m["keys"])
                     sim_ms = (time.perf_counter() - t_sim) * 1000
+                else:
+                    # Offload A/B: Y already ran A+B; restore its state and
+                    # apply C here. effects=False keeps X's own particles.
+                    game.restore(m["s"], effects=False)
+                    sim_ms = None
+                if True:
+                    t_hit = time.perf_counter()
+                    game.step_c()
+                    hit_ms = (time.perf_counter() - t_hit) * 1000
                     if game.game_over and not game_over_sent:
                         game_over_sent, playing = True, False
                         await send(json.dumps({"t": "game_over",
@@ -295,10 +312,12 @@ async def handler(ws):
                         encode_ms = (time.perf_counter() - t0) * 1000
                         log_frame(game.tick, seq, codec, is_key, encode_ms, nbytes)
                         stats.add(encode_ms, nbytes, is_key, sim_ms=sim_ms,
-                                  render_ms=render_ms)
-                elif m["tick"] > game.tick + 1 and (not resync or time.monotonic() - need_at > 2.0):
-                    resync, need_at = True, time.monotonic()
-                    await send(json.dumps({"t": "need_snap"}))
+                                  hit_ms=hit_ms, render_ms=render_ms)
+                    if (t == "in" and m["tick"] > game.tick + 1
+                            and (not resync
+                                 or time.monotonic() - need_at > 2.0)):
+                        resync, need_at = True, time.monotonic()
+                        await send(json.dumps({"t": "need_snap"}))
     finally:
         rd.cancel()
         sd.cancel()

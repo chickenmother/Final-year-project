@@ -367,8 +367,10 @@ class PanelApp:
                   ("x_encode", "X encode p50 ms"), ("x_encode_p95", "p95 ms"),
                   ("x_kf", "X keyframes/s"), ("x_kb", "frame KB"),
                   ("x_video", "X video"), ("placement", "placement"),
-                  ("task_sim", "sim p50 X / Y"), ("task_render", "render p50 X / Y"),
-                  ("task_encode", "encode p50 X / Y"), ("z_decode", "Z decode ms"))
+                  ("task_sim", "sim p50 X / Y"), ("task_hit", "hit p50 X / Y"),
+                  ("task_render", "render p50 X / Y"),
+                  ("task_encode", "encode p50 X / Y"),
+                  ("offload", "offload (A/B state)"), ("z_decode", "Z decode ms"))
         for index, (key, title) in enumerate(titles):
             row, column = divmod(index, 2)
             ttk.Label(frame, text=title).grid(row=row, column=column * 2,
@@ -381,7 +383,7 @@ class PanelApp:
                                                  pady=1)
         ttk.Label(frame, text="intra-refresh needs Z started with "
                               "FYP_X_INTRA_REFRESH=1",
-                  foreground="#666").grid(row=10, column=0, columnspan=4,
+                  foreground="#666").grid(row=11, column=0, columnspan=4,
                                           sticky="w", pady=(4, 0))
 
     def _build_reports_frame(self, parent):

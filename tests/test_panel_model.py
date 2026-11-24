@@ -204,6 +204,16 @@ class LiveStateTests(unittest.TestCase):
                                         "Y": {"p50": 0.014}}}}
         self.assertEqual(pm.metrics(state)["task_sim"], "X 0.02 / Y 0.01")
 
+    def test_hit_and_offload_lines(self):
+        state = {"task_stats": {"hit": {"X": {"p50": 0.42}, "Y": {"p50": 0.31}}},
+                 "offload": {"n": 58, "bytes": 62000, "kb_s": 60.5,
+                             "total": 744000}}
+        values = pm.metrics(state)
+        self.assertEqual(values["task_hit"], "X 0.42 / Y 0.31")
+        self.assertEqual(values["offload"], "60.5 KB/s · 727 kB")
+        self.assertEqual(pm.metrics({})["task_hit"], "-")
+        self.assertEqual(pm.metrics({})["offload"], "-")
+
     def test_placement_payload(self):
         self.assertEqual(pm.placement_payload("all_cloud"),
                          {"cmd": "placement", "pattern": "all_cloud"})

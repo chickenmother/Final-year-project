@@ -23,7 +23,7 @@ PINNED = {"L": "X"}                 # leaderboard store never moves
 LOCAL_TASK = "U"                    # menu/overlay/leaderboard view lives on Z
 # A-C run inside Game.step(), so the router measures them together as "sim"
 # until profiling justifies a split (README: split only for a hotspot).
-METRIC_TASKS = ("sim", "render", "encode", "net")
+METRIC_TASKS = ("sim", "hit", "render", "encode", "net")
 
 PATTERNS = {
     "legacy": None,                 # whole-pipeline RTT fallback (mode)
@@ -92,6 +92,11 @@ def render_tier(tasks):
     return (tasks or {}).get("D")
 
 
+def remote_ab(tasks):
+    """True when A and B run on Y, i.e. Y must ship the state up (WS3.2)."""
+    return bool(tasks) and (tasks.get("A") == "Y" and tasks.get("B") == "Y")
+
+
 def describe(tasks):
     """Human-readable summary for the panel/status line."""
     if not tasks:
@@ -149,8 +154,8 @@ def merge_metrics(local, x_stats=None, rtt=None, rtt_zy=None):
     """
     merged = {task: dict(tiers) for task, tiers in (local or {}).items()}
     x_stats = x_stats or {}
-    for task, key in (("sim", "sim_p50"), ("render", "render_p50"),
-                      ("encode", "encode_p50")):
+    for task, key in (("sim", "sim_p50"), ("hit", "hit_p50"),
+                      ("render", "render_p50"), ("encode", "encode_p50")):
         value = x_stats.get(key)
         if isinstance(value, (int, float)):
             entry = merged.setdefault(task, {})

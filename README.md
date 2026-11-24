@@ -9,7 +9,7 @@
 | **Institution** | Kyushu Sangyo University, Department of Information Science |
 | **Programme** | Final Year Project |
 | **Academic Year** | 2025/2026 |
-| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 test runner/CLI, WS2.2 Tk panel and WS2.3 X runtime video shipped; WS1.3 post-fix smoke done; **WS3.1 Y task router + All Cloud shipped** (E2E `20261124-111232`); WS3.2 Offload A/B next |
+| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 runner/CLI, WS2.2 Tk panel, WS2.3 X runtime video; **WS3.1 task router + All Cloud** and **WS3.2 Offload A/B** shipped (E2E `20261124-115317`: A/B on Y, C–E/L on X, ~536 KB/s state upload); WS3.3 All Edge next |
 
 A final year project modelling a **3-tier vertical cloud gaming architecture** — **End Node (Z) → Middle Edge Gateway (Y) → Cloud Server (X)** — under simulated network latency degradation.
 
@@ -86,17 +86,17 @@ The whole-pipeline baseline stays available as the comparison mode (`placement: 
 | Pattern | X responsibilities | Y responsibilities | Z | Status |
 |---|---|---|---|---|
 | **All Cloud** | A B C D E L | task router/relay | U | **Implemented (WS3.1)** |
-| **Offload A/B** | C D E L | A B + router | U | Planned (WS3.2) |
+| **Offload A/B** | C D E L | A B + router | U | **Implemented (WS3.2)** |
 | **All Edge** | L | A B C D E + router | U | Planned (WS3.3) |
 | **Pinned L** | L (pinned) + the A–E pattern | router | U | Rule across patterns |
 | **Legacy whole-pipeline** | A–E when healthy; idle in edge | A–E in `EDGE Y` | U | Implemented |
 
-Router / protocol (WS3.1 implemented):
+Router / protocol (WS3.1/WS3.2 implemented):
 
 - Y holds the placement table (`{"A":"X", ...}`) in `state["placement"]`; the plan's `placement` field or the live `{"cmd":"placement","pattern":...}` switches it.
-- Y forwards the tasks X owns via `{"t":"placement","tasks":{...}}`; X replies `placement_ok` or an `error`. **L is rejected from any placement that tries to move it; U never appears in the table.**
-- X still runs the full A–E core, so a pattern that moves A/B (or C–E) out of X is rejected until WS3.2/WS3.3 implement those sub-pipelines (`X cannot skip A, B yet (WS3.2)`).
-- Per-task timings are collected on both tiers (`sim` = A–C inside `Game.step`, `render` = D, `encode` = E, `net` = hop) and merged into `state["task_stats"]` and the report's `environment.task_stats`.
+- Y forwards the whole table via `{"t":"placement","tasks":{...}}`; X replies `placement_ok` (with the tasks it owns) or an `error`. **L is rejected from any placement that tries to move it; U never appears in the table.**
+- **All Cloud**: X steps A+B and C itself. **Offload A/B**: Y steps A+B, ships its post-A+B state each tick (`{"t":"state",...}`, ~9 KB at medium workload) and X restores it and runs only C–E. X rejects a table it cannot honour (e.g. All Edge until WS3.3) with a clear message.
+- Per-task timings (`sim` = A+B, `hit` = C, `render` = D, `encode` = E, `net` = hop) are collected on both tiers and merged into `state["task_stats"]` and the report; Offload A/B also records the upload rate/total in `environment.offload`.
 
 ### Pattern axes
 
@@ -113,9 +113,9 @@ The test plan has `mode` (legacy whole-pipeline), `video_preset` (video) and `pl
 
 ### Implementation status
 
-- **Implemented:** whole-pipeline baseline; A–E game core; U menu/overlay/config (partial); H.264/JPEG; Y fallback; test runner/reports; Z test mode; WS2.2 Tk control panel; WS2.3 X runtime `video`/`stats`/`stop`; WS3.1 task router + All Cloud placement + per-task metrics.
+- **Implemented:** whole-pipeline baseline; A–E game core (split into A+B / C for placement); U menu/overlay/config (partial); H.264/JPEG; Y fallback; test runner/reports; Z test mode; WS2.2 Tk control panel; WS2.3 X runtime `video`/`stats`/`stop`; WS3.1 task router + All Cloud; WS3.2 Offload A/B with per-task metrics and the state-upload cost.
 - **Partial:** B (no pathfinding); U (leaderboard placeholder); no L.
-- **Planned:** Offload A/B and All Edge placements; L SQLite on X; leaderboard view.
+- **Planned:** All Edge placement; L SQLite on X; leaderboard view.
 
 
 
@@ -173,7 +173,8 @@ FYP/
 │       ├── ws1_1_a2.json        # WS1.1 baseline (preset A2)
 │       ├── ws1_3_a1.json        # WS1.3 post-fix (preset A1)
 │       ├── ws2_1_smoke.json     # WS2.1 runner smoke
-│       └── ws3_1_all_cloud.json # WS3.1 All Cloud + preset A1
+│       ├── ws3_1_all_cloud.json # WS3.1 All Cloud + preset A1
+│       └── ws3_2_offload_ab.json # WS3.2 Offload A/B (medium) + preset A1
 ├── tests/
 │   ├── test_game_core.py
 │   ├── test_testplan.py
@@ -504,29 +505,6 @@ to X** and **Apply placement** (and a plan's `video_preset`/`placement` at start
 Y. The live metrics show X fps, encode p50/p95, keyframes/s, frame KB, the confirmed preset, the
 placement table and per-task p50s (sim/render/encode for X and Y).
 
-### WS3.1 — task router + All Cloud (implemented)
-
-`common/placement.py` holds the A–E/L table, the patterns and the per-task timing collector; Y
-applies the plan's `placement` (or a live `{"cmd":"placement","pattern":...}`) and forwards the
-tasks X owns.
-
-- **All Cloud** (`A B C D E L` on X, `U` on Z) is implemented and is the reference pattern.
-- **Offload A/B** and **All Edge** are defined but rejected by X today —
-  `X cannot skip A, B yet (WS3.2)` — because the sub-pipelines do not exist yet. Y records the
-  requested table and `placement_applied: false`.
-- **L is pinned to X**: `validate()` rejects any table that moves it. `U` is local to Z and never
-  appears in a table.
-- Per-task timings: `sim` (A–C inside `Game.step`), `render` (D), `encode` (E) and `net` (hop),
-  measured on both tiers, merged into `state["task_stats"]` and written to the report's
-  `environment.task_stats` (`{"sim": {"X": {...}, "Y": {...}}, ...}`).
-- A placement run with `mode: auto` **pins rendering to the pattern's D tier** (`render_tier()`),
-  so the legacy RTT fallback cannot quietly move D to Y and invalidate an All Cloud capture.
-
-Local E2E `20261124-111232` (all three tiers on one PC, light workload, preset A1):
-`sim X 0.02 / Y 0.02 ms`, `render X 0.46 ms`, `encode X 5.21 ms` (render+encode),
-`net X 2.55 / Z 3.5 ms`, e2e p50 12.6 ms, X 60 fps. Offload A/B was requested and correctly
-rejected, then All Cloud re-applied.
-
 ### WS2.3 — X runtime video/stats/stop (implemented)
 
 `x_server.py` accepts three control messages from Y, so the encoder no longer needs a restart
@@ -556,6 +534,45 @@ Caveats:
 - `intra` switches x264 to intra-refresh, which has **no periodic IDR**; End Z must already be
   running with `FYP_X_INTRA_REFRESH=1` (the same rule as a normal start).
 - A rebuild failure keeps the old encoder and reports an error; the run continues.
+
+### WS3.1 — task router + All Cloud (implemented)
+
+`common/placement.py` holds the A–E/L table, the patterns, the pinned-L/U rules and the per-task
+timing collector; Y applies the plan's `placement` (or a live `{"cmd":"placement","pattern":...}`)
+and forwards the whole table to X.
+
+- **All Cloud** (`A B C D E L` on X, `U` on Z) is the reference pattern; X steps A+B then C.
+- **L is pinned to X**: `validate()` rejects any table that moves it. `U` is local to Z and never
+  appears in a table.
+- A placement run with `mode: auto` **pins rendering to the pattern's D tier** (`render_tier()`),
+  so the legacy RTT fallback cannot quietly move D to Y and invalidate a capture.
+- Per-task timings (`sim` = A+B, `hit` = C, `render` = D, `encode` = E, `net` = hop) are collected
+  on both tiers and merged into `state["task_stats"]` and the report's `environment.task_stats`.
+
+### WS3.2 — Offload A/B (implemented)
+
+`Game.step()` is now `step_ab()` (A: movement/spawning/physics and B: bot decisions) followed by
+`step_c()` (C: damage, score, pruning, waves, death). Calling `step()` is exactly the old
+behaviour: `tests/test_game_core.py` asserts the two paths stay identical over 600 ticks, and that
+a remote C reproduces a local C tick for tick.
+
+- **Y** steps A+B, ships the post-A+B state (`{"t":"state",...}`, ~9 KB at medium workload) and
+  then applies C to its own copy so its fallback stays valid.
+- **X** restores that state and runs only C, D, E (and L when it lands).
+- Damage discovered during A/B travels in the snapshot (`contacts`), so the tier that owns C
+  applies exactly what the other tier found.
+- X accepts a placement when it owns C, D, E and either all of A/B or neither; All Edge is still
+  rejected until WS3.3.
+- The report records `environment.placement`, `placement_applied`, `task_stats` and
+  `environment.offload` (`{"n", "bytes", "kb_s", "total"}`) — the upload is the price of the
+  pattern.
+- Reproducible plan: `tools/plans/ws3_2_offload_ab.json` (medium, A1, 5+60 s).
+
+Local E2E `20261124-115317` (all tiers on one PC, medium workload, A1): `sim Y 0.06 ms`,
+`hit X 0.01 / Y 0.01 ms`, `render X 0.63 ms`, `encode X 5.67 ms`, `net X 2.34 / Z 3.6 ms`,
+X 59.8 / Z 59.9 fps, e2e p50 15.7 ms, upload **531–536 KB/s, 2.7 MB total**. All Cloud on the same
+box (WS3.1 run) was e2e p50 12.6 ms with no upload, so Offload A/B trades roughly 530 KB/s of
+upstream state for keeping A/B local to the edge.
 
 ---
 

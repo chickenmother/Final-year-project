@@ -919,5 +919,27 @@ HEAD   : 19c9072  "Add run_panel.cmd launcher for the WS2.2 test panel"
     --plan "tools\plans\ws3_1_all_cloud.json" came up; process stopped afterwards.
   - Docs/launcher only; 92 tests unchanged. No behaviour change in X/Y/Z.
 
+[2026-11-24 11:58 +09:00 | from Y / home PC — WS3.2 Offload A/B shipped]
+  - Game core split: step() = step_ab() (A movement/spawn/physics + B bot AI) + step_c()
+    (C damage/score/prune/waves/death). tests/test_game_core.py proves fused == split over 600
+    ticks and remote-C == local-C tick-for-tick; contacts travel in snapshot() and
+    restore(state, effects=False) keeps the receiving tier's particles.
+  - Y: for offload_ab it steps A+B, ships {"t":"state","tick","seq","keys","s"} (~9 KB at
+    medium), then applies C locally; tracks state["offload"] {n,bytes,kb_s,total}.
+  - X: accepts placement when it owns C,D,E and all-or-neither of A/B; restores the state and
+    runs C only. All Edge still rejected (WS3.3). Y now forwards the whole placement table
+    (X could not see A/B on Y before).
+  - Metrics: x_stats gains hit_p50; task_stats now sim/hit/render/encode/net; panel shows
+    hit p50 and the offload rate; report environment gains task_stats.hit and offload.
+  - Local 3-tier E2E, report 20261124-115317 (medium, A1): placement applied, sim Y 0.06 ms,
+    hit X/Y 0.01, render X 0.63, encode X 5.65, net X 2.34 / Z 3.6 ms, X 59.8 / Z 59.9 fps,
+    e2e p50 15.7 / p90 16.32 ms, upload 536 KB/s (2.7 MB total).
+    Compare All Cloud (20261124-111232): e2e p50 12.6 ms, no upload.
+  - Cleanup: all tiers stopped (an old Y from the panel check was still holding 8000 at first;
+    killed before the successful run). 0 python processes after.
+  - Validation: 98 tests, selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
+  - Lab X still at cda0f52.
+  - Next: WS3.3 All Edge (C/D/E on Y, L on X).
+
 END OF SYNC
 

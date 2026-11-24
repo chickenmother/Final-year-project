@@ -1,0 +1,12 @@
+{
+  "name": "WS3.2 Offload A/B (A1)",
+  "warmup_s": 5,
+  "duration_s": 60,
+  "seed": 12345,
+  "workload": "medium",
+  "mode": "auto",
+  "video_preset": "A1",
+  "placement": "offload_ab",
+  "input_pattern": "strafe",
+  "events": []
+}

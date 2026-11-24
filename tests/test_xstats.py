@@ -77,7 +77,18 @@ class FrameStatsTests(unittest.TestCase):
         stats.add(5.0, 1000, when=1.0)
         snap = stats.snapshot(when=1.0)
         self.assertIsNone(snap["sim_p50"])
+        self.assertIsNone(snap["hit_p50"])
         self.assertIsNone(snap["render_p50"])
+
+    def test_hit_p50_is_separate_from_sim(self):
+        stats = FrameStats(window_s=5.0)
+        for index in range(3):
+            stats.add(5.0, 1000, when=2.0 + index / 100,
+                      sim_ms=1.0, hit_ms=0.25, render_ms=0.5)
+        snap = stats.snapshot(when=2.03)
+        self.assertEqual(snap["sim_p50"], 1.0)
+        self.assertEqual(snap["hit_p50"], 0.25)
+        self.assertEqual(snap["render_p50"], 0.5)
 
     def test_snapshot_is_json_safe(self):
         import json
