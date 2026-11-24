@@ -1,11 +1,13 @@
 """EDGE Y (laptop A): sequencer + fallback renderer + latency monitor + mode switch + dashboard backend."""
-import asyncio, collections, csv, json, os, struct, sys, time
+import asyncio, collections, csv, io, json, os, struct, sys, time
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
 from common import config as C
+from common import pipeline as P
 from common import report as report_mod
 from common.net import lan_ip, quiet_handshake_errors
+from common.pipeline import Chain, ChannelStats
 from common.placement import (
     PlacementError,
     TaskStats,
@@ -35,7 +37,9 @@ state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
          "z_stats": {}, "x_stats": {}, "x_video": {}, "x_fps": 0.0, "y_fps": 0.0,
          "placement": {}, "placement_pattern": "legacy", "placement_applied": False,
          "x_placement": {}, "task_stats": {}, "offload": {}, "remote_ab": False,
-         "edge_only": False, "leaderboard": [], "reports": []}
+         "edge_only": False, "leaderboard": [], "reports": [],
+         "chain": {}, "chain_crossings": 0, "chain_desc": "",
+         "channels": {}, "x_channels": {}, "stalls": 0}
 inp = {"keys": "", "seq": 0, "latch": False}
 zs = {}                # Z connection -> frame queue + capability slot
 last_fwd, bad, good_since = 0, 0, None
@@ -63,6 +67,11 @@ SAFE_TEST_CONFIG = {
     "player": {"max_hp": 1000, "obstacle_damage": 0, "bot_damage": 0},
     "bot": {"bullet_damage": 0},
 }
+# WS3.5: custom placements run as a stage chain.  Pixels cross D->E as JPEG
+# unless FYP_PIXELS_RAW=1 asks for RGBA bytes (2.8 MB per 720p frame).
+chain = None                             # common.pipeline.Chain or None
+chain_stats = ChannelStats()             # crossings/stalls/stage timings
+PIXELS_RAW = os.environ.get("FYP_PIXELS_RAW", "0") == "1"
 
 
 def count_offload(nbytes):
@@ -256,6 +265,16 @@ def update_mode():
 async def on_x_msg(msg):               # message from X, AFTER the simulated downlink delay
     global last_fwd
     if isinstance(msg, bytes):
+        parsed = P.parse_pixels(msg) if chain is not None else None
+        if parsed is not None:
+            # WS3.5: D on X, E here — run the encoder on the received pixels.
+            tick, seq, fmt, size, snapshot, data = parsed
+            if snapshot is not None:
+                game.restore(snapshot, effects=False)
+            state["tick"] = game.tick
+            state["game"] = game_summary()
+            apply_stage("E", "", seq, {"surface": None}, (fmt, size, data))
+            return
         # X frames already carry their source byte: JPEG is 'X', H.264 is 'x'.
         src = msg[0:1]
         if src == b"x":                 # x | key | tick | seq | payload
@@ -273,7 +292,21 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
             broadcast(msg, keyframe=key)
     else:
         m = json.loads(msg)
-        if m["t"] == "pong":
+        if m["t"] == "stage" and chain is not None:
+            # WS3.5: X forwarded the tick to a stage that lives here.
+            try:
+                stage, tick, seq, keys, snapshot = P.parse_stage(m)
+            except P.PipelineError as exc:
+                print(f"bad stage message: {exc}")
+                return
+            run_chain(stage, keys, seq, snapshot)
+        elif m["t"] == "final":
+            # WS3.5: the chain finished elsewhere; keep our copy current.
+            if m.get("s") is not None:
+                game.restore(m["s"], effects=False)
+                state["tick"] = game.tick
+                state["game"] = game_summary()
+        elif m["t"] == "pong":
             rtt = (time.monotonic() - m["ts"]) * 1000
             state["rtt"] = 0.7 * state["rtt"] + 0.3 * rtt if state["rtt"] else rtt
             update_mode()
@@ -305,7 +338,9 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
         elif m["t"] == "x_stats":
             # WS2.3: 1 Hz encoder summary from Cloud X.
             state["x_stats"] = {key: value for key, value in m.items()
-                                if key != "t"}
+                                if key not in ("t", "chain")}
+            if m.get("chain") is not None:
+                state["x_channels"] = m["chain"]      # WS3.5 counters from X
         elif m["t"] == "video_ok":
             state["x_video"] = {key: value for key, value in m.items()
                                 if key != "t"}
@@ -343,6 +378,14 @@ async def tick_loop():
             keys += " "                # a short tap between two ticks is not lost
         inp["latch"] = False
         seq = inp["seq"]
+        if chain is not None:
+            # WS3.5: a custom placement runs as a stage chain (see run_chain).
+            chain_tick(keys, seq)
+            now = time.monotonic()
+            if nxt < now - 0.2:
+                nxt = now
+            await asyncio.sleep(max(0, nxt - now))
+            continue
         # WS3.2: Y always runs A+B then C (same code as X), so the fallback copy
         # stays valid. For Offload A/B the post-A/B state is shipped to X
         # between the two phases, which is exactly the cost being measured.
@@ -453,6 +496,14 @@ def refresh_task_stats():
                                         state.get("x_stats"),
                                         state.get("rtt"),
                                         state.get("rtt_zy"))
+    if chain is not None:
+        # WS3.5: crossings, bytes and stalls for the live panel + report.
+        snap = chain_stats.snapshot()
+        snap["state"] = chain.tasks
+        snap["crossings"] = len(chain.crossings)
+        snap["stream_tier"] = chain.stream_tier
+        state["channels"] = snap
+        state["stalls"] = snap["stalls"]
 
 
 def send_to_z(data):
@@ -463,6 +514,179 @@ def send_to_z(data):
         slot["ev"].set()
         count += 1
     return count
+
+
+# ---------------------------------------------------------------------------
+# WS3.5: custom stage chain on EDGE Y.
+#
+# A tick starts at the tier that owns A.  Each tier runs the longest local run
+# of stages (``Chain.local_run``) and forwards at a crossing; D and E on
+# different tiers ship rendered pixels (``p`` binary) instead of JSON state.
+# The three presets keep their old, separately tested paths.
+# ---------------------------------------------------------------------------
+def chain_tick(keys, seq):
+    """One tick of a custom placement, starting at A's owner."""
+    entry = chain.first()
+    if entry["tier"] == "Y":
+        run_chain("A", keys, seq)
+    else:
+        payload = P.stage_message("A", game.tick + 1, seq, keys)
+        chain_stats.crossing(P.STATE, len(payload))
+        if up is None or up.fn is None:
+            chain_stats.stall(game.tick + 1)
+        else:
+            up.put(payload)
+
+
+def run_chain(stage, keys="", seq=0, snapshot=None, pixels=None):
+    """Run Y's slice of the chain from ``stage``; returns True if it was ours."""
+    run, forward = chain.local_run(stage, "Y")
+    if not run:
+        return False                     # another tier owns this stage
+    if snapshot is not None:
+        game.restore(snapshot, effects=False)
+    frame = {"surface": None}
+    for name in run:
+        apply_stage(name, keys, seq, frame, pixels)
+        if name == "E":
+            pixels = None                # consumed by the local encoder
+    state["tick"] = game.tick
+    state["game"] = game_summary()
+    if game.game_over and not edge_over_sent:
+        on_chain_game_over()
+    if forward is not None:
+        forward_chain(forward, keys, seq, frame)
+    return True
+
+
+def apply_stage(name, keys, seq, frame, pixels=None):
+    """Run one stage on Y and record its cost (WS3.5)."""
+    t0 = time.perf_counter()
+    if name == "A":
+        game.step_a(keys)
+    elif name == "B":
+        game.step_b()
+    elif name == "C":
+        game.step_c()
+    elif name == "D":
+        frame["surface"] = game.render_surface(C.Y_SIZE, smooth=False)
+    elif name == "E":
+        stream_frame(seq, frame, pixels)
+    chain_stats.stage(name, (time.perf_counter() - t0) * 1000)
+    if name in ("A", "B"):
+        task_stats.add("sim", (time.perf_counter() - t0) * 1000, "Y")
+    elif name == "C":
+        task_stats.add("hit", (time.perf_counter() - t0) * 1000, "Y")
+    elif name == "D":
+        task_stats.add("render", (time.perf_counter() - t0) * 1000, "Y")
+
+
+def forward_chain(forward, keys, seq, frame):
+    """Ship the tick to the other tier: pixels for D->E, JSON state otherwise."""
+    if forward == "E":
+        data, fmt, size = offload_pixels(frame)
+        payload = P.pixels_message(game.tick, seq, fmt, size,
+                                   game.snapshot(), data)
+    else:
+        payload = P.stage_message(forward, game.tick, seq, keys,
+                                  game.snapshot())
+    chain_stats.crossing(P.PIXELS if forward == "E" else P.STATE, len(payload))
+    if up is None or up.fn is None:
+        chain_stats.stall(game.tick)
+        return
+    up.put(payload)
+
+
+def offload_pixels(frame):
+    """Pixels for the D->E crossing: ``(bytes, fmt, size)``.
+
+    JPEG keeps the link at 40-90 KB per frame; ``FYP_PIXELS_RAW=1`` sends the
+    RGBA surface instead (lossless, ~2.8 MB at 720p) to show the stall cliff.
+    """
+    if PIXELS_RAW and frame.get("surface") is not None:
+        import pygame
+        surface = frame["surface"]
+        return (pygame.image.tobytes(surface, "RGBA"),
+                P.pixel_format(raw=True), surface.get_size())
+    return (game.render(C.Y_SIZE, C.Y_QUALITY, smooth=False),
+            P.pixel_format(quality=C.Y_QUALITY), C.Y_SIZE)
+
+
+def pixels_image(pixels):
+    """Decode a D->E pixel payload into a PIL image for the H.264 encoder."""
+    from PIL import Image
+    fmt, size, data = pixels
+    if fmt == "raw":
+        return Image.frombytes("RGBA", (int(size[0]), int(size[1])),
+                              data).convert("RGB")
+    return Image.open(io.BytesIO(data)).convert("RGB")
+
+
+def stream_frame(seq, frame, pixels=None):
+    """E on Y: encode the tick (H.264 when every Z can decode) and broadcast.
+
+    ``frame["surface"]`` is set when D also ran here; otherwise ``pixels`` is
+    the (fmt, size, bytes) payload received from the tier that rendered.
+    """
+    global y_force_key, y_encoder
+    tick = game.tick
+    surface = frame.get("surface")
+    if y_encoder is not None and all_h264() and (surface is not None or pixels):
+        try:
+            if y_force_key:
+                y_encoder.force_keyframe()
+                y_force_key = False
+            t_enc = time.perf_counter()
+            if surface is not None:
+                packets = y_encoder.encode_surface(surface)
+            else:
+                packets = y_encoder.encode(pixels_image(pixels))
+            ms = (time.perf_counter() - t_enc) * 1000
+            task_stats.add("encode", ms, "Y")
+            chain_stats.encoded(ms)
+            for payload, key in packets:
+                # Lowercase 'y' marks H.264; byte 1 is the keyframe flag.
+                broadcast(b"y" + bytes([1 if key else 0])
+                          + struct.pack("!II", tick, seq) + payload,
+                          keyframe=key)
+            return
+        except Exception as exc:          # keep the tier alive
+            print(f"H.264 encode failed ({exc!r}); falling back to JPEG")
+            y_encoder = None
+    if pixels is not None and len(pixels) == 3 and pixels[0] != "raw":
+        jpeg = pixels[2]                  # already JPEG: only re-framed here
+    else:
+        jpeg = game.render(C.Y_SIZE, C.Y_QUALITY, smooth=False)
+    chain_stats.encoded()
+    broadcast(b"Y" + struct.pack("!II", tick, seq) + jpeg, keyframe=True)
+
+
+def on_chain_game_over():
+    """The custom chain finished the match: broadcast once and stop."""
+    global edge_over_sent
+    edge_over_sent = True
+    state["playing"] = False
+    broadcast(json.dumps({"t": "game_over", "score": game.score,
+                          "deaths": game.deaths}), keyframe=True)
+    print(f"game over (chain): score={game.score}")
+    submit_score()
+    if test_runner is not None:
+        test_runner.on_game_over()
+
+
+def game_summary():
+    """Dashboard/panel view of the last executed tick."""
+    return {
+        "hp": max(0, game.player.hp),
+        "max_hp": game.player.max_hp,
+        "bots": len(game.bots),
+        "obstacles": len(game.obstacles),
+        "bullets": len(game.bullets),
+        "score": game.score,
+        "deaths": game.deaths,
+        "tick": game.tick,
+        "workload": game.workload.name,
+    }
 
 
 class TestRunner:
@@ -555,7 +779,7 @@ class TestRunner:
 
     # -- lifecycle ------------------------------------------------------
     async def start(self, raw):
-        global paused
+        global paused, chain, chain_stats
         plan = TestPlan.from_dict(raw or {})
         if self.phase in ("starting", "warmup", "running", "paused"):
             raise PlanError("a test is already running")
@@ -610,11 +834,34 @@ class TestRunner:
         # A/B on Y alone does not mean "ship the state up": with the whole
         # pipeline on Y (All Edge) X is idle, so there is nothing to upload.
         state["remote_ab"] = placement_remote_ab(table) and not state["edge_only"]
+        # WS3.5: a custom table runs through the stage chain, not the presets.
+        custom = plan.placement == "custom" and table is not None
+        chain = Chain(table) if custom else None
+        chain_stats = ChannelStats()
+        if custom:
+            state["edge_only"] = False      # the chain decides who steps/streams
+            state["remote_ab"] = False
+            state["chain"] = chain.pattern
+            state["chain_crossings"] = len(chain.crossings)
+            state["chain_desc"] = chain.describe()
+            print(f"[{time.strftime('%X')}] test: custom chain "
+                  f"{chain.describe()}")
+        else:
+            state["chain"] = {}
+            state["chain_crossings"] = 0
+            state["chain_desc"] = ""
+        # Z must not ask for an IDR on every gap once a chain runs at an
+        # irregular cadence (WS3.5 encoder-tick fix); 0 means "any stride".
+        send_to_z(P.stride_message("x", 0 if custom else C.X_STREAM_EVERY))
+        send_to_z(P.stride_message("y", 0 if custom else C.Y_STREAM_EVERY))
         if table is None:
             print(f"[{time.strftime('%X')}] test: placement legacy "
                   f"(whole-pipeline)")
         elif state.get("linked"):
-            send_x_control({"t": "placement", "tasks": dict(table)})
+            control = {"t": "placement", "tasks": dict(table)}
+            if custom:
+                control["custom"] = True
+            send_x_control(control)
             print(f"[{time.strftime('%X')}] test: placement {plan.placement} "
                   f"({describe_placement(table)})")
         else:
@@ -623,7 +870,8 @@ class TestRunner:
         # A placement run must render where the pattern says; otherwise the
         # legacy RTT fallback would move D to Y and invalidate the measurement.
         if table is not None and plan.mode == "auto":
-            state["mode_override"] = render_tier(table)
+            state["mode_override"] = (chain.stream_tier if custom
+                                      else render_tier(table))
             update_mode()
             send_stream()
             print(f"[{time.strftime('%X')}] test: rendering pinned to "
@@ -875,6 +1123,28 @@ class TestRunner:
             "game_config": getattr(game, "config", None),
             "mode_final": state.get("mode"),
         }
+        channels = state.get("channels") or {}
+        if chain is not None or channels:
+            # WS3.5: what the chain cost and where it crossed.
+            x_channels = state.get("x_channels") or {}
+            environment.update({
+                "chain": state.get("chain") or {},
+                "crossings": int(state.get("chain_crossings") or 0),
+                "stream_tier": (chain.stream_tier if chain is not None
+                                else None),
+                "pixels_format": (P.pixel_format(raw=PIXELS_RAW,
+                                                 quality=C.Y_QUALITY)
+                                  if chain is not None and chain.pixel_channel
+                                  else None),
+                "channels": channels,
+                "channels_x": x_channels,
+                "stalls": (int(channels.get("stalls") or 0)
+                           + int(x_channels.get("stalls") or 0)),
+                "encode_fps": ((channels.get("encode_frames") or 0)
+                               / max(0.001, self._elapsed())),
+                "stage_p50": channels.get("stage_p50") or {},
+                "stage_p50_x": x_channels.get("stage_p50") or {},
+            })
         try:
             report = report_mod.build(self.plan, started, ended, self.samples,
                                       self.events, environment,

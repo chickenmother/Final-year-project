@@ -182,6 +182,7 @@ async def main():
         need_key = True                          # wait for an IDR before decoding P-frames
         last_tick = None
         last_seq = None
+        strides = {}                             # WS3.5: declared stream stride
         fps_count, fps_t0, fps_value = 0, None, None
         async for msg in ws:
             if isinstance(msg, str):
@@ -190,6 +191,11 @@ async def main():
                 if kind == "pong":               # Z<->Y latency probe
                     ms = (time.monotonic() - m["ts"]) * 1000
                     st["rzy"] = ms if not st["rzy"] else 0.8 * st["rzy"] + 0.2 * ms
+                elif kind == "stride":
+                    # WS3.5: the sender states how many ticks it skips.
+                    # 0 = irregular cadence (stage chain): a tick gap is normal
+                    # and must not trigger the IDR/freeze loop.
+                    strides[m.get("src")] = int(m.get("n", 0))
                 elif kind == "game_over":
                     st["game_over"] = True
                     st["score"] = int(m.get("score", 0))
@@ -256,10 +262,16 @@ async def main():
                 if decoder is None or dec_src != src:
                     decoder, dec_src, need_key = H264Decoder(), src, True
                     last_tick = None
-                # The sender may stream every Nth tick (Y: 2, X: 1). Only a jump
-                # larger than that stride is a dropped frame, not a normal step.
-                step = C.X_STREAM_EVERY if src == "x" else C.Y_STREAM_EVERY
-                if last_tick is not None and (tick < last_tick or tick > last_tick + step):
+                # The sender may stream every Nth tick (Y: 2, X: 1), and a
+                # stage chain declares 0 = irregular. Only a jump larger than
+                # the declared stride is a dropped frame, not a normal step.
+                step = strides.get(src)
+                if step is None:
+                    step = C.X_STREAM_EVERY if src == "x" else C.Y_STREAM_EVERY
+                jump = (last_tick is not None
+                        and (tick < last_tick
+                             or (step and tick > last_tick + step)))
+                if jump:
                     if not need_key:
                         st["want_idr"] = True    # a frame was dropped: ask for an IDR
                     need_key = True              # do not draw until a clean reference arrives
