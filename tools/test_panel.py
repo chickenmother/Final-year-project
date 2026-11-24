@@ -33,6 +33,7 @@ if str(ROOT) not in sys.path:
 from common.testplan import (  # noqa: E402  (after the sys.path fix)
     INPUT_PATTERNS,
     MODES,
+    PLACEMENTS,
     PlanError,
     VIDEO_PRESETS,
     WORKLOADS,
@@ -254,9 +255,7 @@ class PanelApp:
         field(3, 0, "Mode", "mode", MODES)
         field(3, 2, "Video preset", "video_preset", VIDEO_PRESETS)
         field(4, 0, "Input", "input_pattern", INPUT_PATTERNS)
-        ttk.Label(frame, text="Apply to X swaps the live encoder (WS2.3)",
-                  foreground="#666").grid(row=4, column=2, columnspan=2,
-                                          sticky="w")
+        field(4, 2, "Placement", "placement", PLACEMENTS)
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=5, column=0, columnspan=4, sticky="ew", pady=(4, 0))
@@ -273,6 +272,9 @@ class PanelApp:
         self.controls["apply_video"] = ttk.Button(
             buttons, text="Apply video to X", command=self.on_apply_video)
         self.controls["apply_video"].pack(side="left")
+        self.controls["apply_placement"] = ttk.Button(
+            buttons, text="Apply placement", command=self.on_apply_placement)
+        self.controls["apply_placement"].pack(side="left", padx=4)
         files = [path.name for path in pm.plan_files(PLAN_DIR)]
         self.plan_picker = ttk.Combobox(buttons, textvariable=self.plan_file_var,
                                         values=files, width=22,
@@ -364,20 +366,22 @@ class PanelApp:
                   ("y_fps", "Y fps"), ("z_fps", "Z fps"),
                   ("x_encode", "X encode p50 ms"), ("x_encode_p95", "p95 ms"),
                   ("x_kf", "X keyframes/s"), ("x_kb", "frame KB"),
-                  ("x_video", "X video"), ("z_decode", "Z decode ms"))
+                  ("x_video", "X video"), ("placement", "placement"),
+                  ("task_sim", "sim p50 X / Y"), ("task_render", "render p50 X / Y"),
+                  ("task_encode", "encode p50 X / Y"), ("z_decode", "Z decode ms"))
         for index, (key, title) in enumerate(titles):
             row, column = divmod(index, 2)
             ttk.Label(frame, text=title).grid(row=row, column=column * 2,
                                               sticky="w", padx=(0, 4), pady=1)
             var = tk.StringVar(value="-")
             self.metric_vars[key] = var
-            ttk.Label(frame, textvariable=var, width=14, anchor="w",
+            ttk.Label(frame, textvariable=var, width=16, anchor="w",
                       font=("Consolas", 9)).grid(row=row, column=column * 2 + 1,
                                                  sticky="w", padx=(0, 14),
                                                  pady=1)
         ttk.Label(frame, text="intra-refresh needs Z started with "
                               "FYP_X_INTRA_REFRESH=1",
-                  foreground="#666").grid(row=8, column=0, columnspan=4,
+                  foreground="#666").grid(row=10, column=0, columnspan=4,
                                           sticky="w", pady=(4, 0))
 
     def _build_reports_frame(self, parent):
@@ -505,6 +509,15 @@ class PanelApp:
             return
         self._send(payload, f"apply video {preset} to X")
 
+    def on_apply_placement(self):
+        """Switch Y's router placement without starting a run (WS3.1)."""
+        pattern = self.form_vars["placement"].get()
+        try:
+            payload = pm.placement_payload(pattern)
+        except PlanError as exc:
+            return self._plan_error(exc)
+        self._send(payload, f"placement {pattern}")
+
     def _refresh_plan_views(self):
         self.event_tree.delete(*self.event_tree.get_children())
         for row in pm.event_rows(self.plan):
@@ -551,7 +564,8 @@ class PanelApp:
             widget = self.controls.get(key)
             if widget is not None:
                 widget.configure(state="normal" if state[key] else "disabled")
-        for key in ("apply", "preview", "remove_event", "launch_z", "apply_video"):
+        for key in ("apply", "preview", "remove_event", "launch_z", "apply_video",
+                    "apply_placement"):
             widget = self.controls.get(key)
             if widget is not None:
                 widget.configure(state="normal" if state["edit"] else "disabled")

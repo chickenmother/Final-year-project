@@ -3,6 +3,7 @@ import asyncio, collections, csv, json, os, struct, time
 from websockets.asyncio.server import serve
 from common import config as C
 from common.net import lan_ip, quiet_handshake_errors
+from common.placement import PlacementError, TASKS, validate as validate_placement
 from common.win import hires_timer
 from common.xstats import FrameStats
 hires_timer()
@@ -20,6 +21,7 @@ x_encoder = None
 log_f = log_w = None
 n_logged = 0
 stats = FrameStats(window_s=2.0)         # rolling encoder stats (WS2.3)
+placement_owner = list(TASKS)           # tasks Cloud X currently runs (WS3.1)
 
 
 async def apply_video(m):
@@ -77,7 +79,7 @@ def log_frame(tick, seq, codec, key, encode_ms, nbytes):
 
 
 async def handler(ws):
-    global resync, game_over_sent, game, x_encoder
+    global resync, game_over_sent, game, x_encoder, placement_owner
     # Do NOT reset the game on connect: ask Y for its snapshot instead, so the
     # two tiers converge on whichever side kept the newer state. This also
     # survives a Y or X restart without a visible jump.
@@ -195,6 +197,29 @@ async def handler(ws):
                 stats.reset()
                 await send(json.dumps({"t": "stopped"}))
                 print(f"[{time.strftime('%X')}] X stopped by request")
+            elif t == "placement":
+                # WS3.1: Y's router tells X which tasks it owns. X still runs
+                # the full A-E core, so a pattern that moves A/B (or C-E) out
+                # of X is rejected until WS3.2 implements the sub-pipelines.
+                try:
+                    table = validate_placement(m.get("tasks") or {})
+                except PlacementError as exc:
+                    await send(json.dumps({"t": "error", "command": "placement",
+                                           "message": str(exc)}))
+                    continue
+                owned = [task for task in TASKS if table.get(task) == "X"]
+                missing = [task for task in ("A", "B", "C", "D", "E")
+                           if task not in owned]
+                if missing:
+                    await send(json.dumps({
+                        "t": "error", "command": "placement",
+                        "message": f"X cannot skip {', '.join(missing)} yet "
+                                   f"(WS3.2)"}))
+                    continue
+                placement_owner = owned
+                print(f"[{time.strftime('%X')}] X placement: tasks {owned}")
+                await send(json.dumps({"t": "placement_ok",
+                                       "tasks": {task: "X" for task in owned}}))
             elif t == "start":
                 try:
                     game = Game(m.get("workload", "light"),
@@ -217,7 +242,9 @@ async def handler(ws):
                 if not playing:
                     continue
                 if not paused and m["tick"] == game.tick + 1:
+                    t_sim = time.perf_counter()
                     game.step(m["keys"])
+                    sim_ms = (time.perf_counter() - t_sim) * 1000
                     if game.game_over and not game_over_sent:
                         game_over_sent, playing = True, False
                         await send(json.dumps({"t": "game_over",
@@ -231,9 +258,12 @@ async def handler(ws):
                         seq = m["seq"]
                         t0 = time.perf_counter()
                         is_key = True
+                        render_ms = None
                         if x_encoder is not None and z_h264:
                             try:
+                                t_render = time.perf_counter()
                                 frame = game.render_surface(C.X_SIZE, True)
+                                render_ms = (time.perf_counter() - t_render) * 1000
                                 if force_key or out["need_key"]:
                                     x_encoder.force_keyframe()
                                     force_key = out["need_key"] = False
@@ -264,7 +294,8 @@ async def handler(ws):
                             nbytes, codec, is_key = len(jpg), "jpeg", True
                         encode_ms = (time.perf_counter() - t0) * 1000
                         log_frame(game.tick, seq, codec, is_key, encode_ms, nbytes)
-                        stats.add(encode_ms, nbytes, is_key)
+                        stats.add(encode_ms, nbytes, is_key, sim_ms=sim_ms,
+                                  render_ms=render_ms)
                 elif m["tick"] > game.tick + 1 and (not resync or time.monotonic() - need_at > 2.0):
                     resync, need_at = True, time.monotonic()
                     await send(json.dumps({"t": "need_snap"}))
@@ -302,6 +333,8 @@ async def main():
         async with serve(handler, C.X_HOST, C.X_PORT, max_size=4 << 20, compression=None,
                          ping_interval=C.PING_INTERVAL, ping_timeout=C.PING_TIMEOUT):
             print(f"X ready: ws://{lan_ip()}:{C.X_PORT}  (listening on {C.X_HOST}:{C.X_PORT})")
+            print(f"X tasks: {', '.join(placement_owner)} "
+                  f"(placement is set by Y's router)")
             await asyncio.Future()
     finally:
         if x_encoder is not None:

@@ -9,7 +9,7 @@
 | **Institution** | Kyushu Sangyo University, Department of Information Science |
 | **Programme** | Final Year Project |
 | **Academic Year** | 2025/2026 |
-| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 test runner/CLI shipped; WS1.3 post-fix smoke completed (`20261123-153034`); WS2.2 Tk control panel shipped; WS2.3 X runtime video/stats/stop shipped (E2E `20261123-164025`, live A1→A2 switch at 60 fps); task-level placement (WS3) next |
+| **Status** | Working prototype — Python 3.13.9 on Windows; WS2.1 test runner/CLI, WS2.2 Tk panel and WS2.3 X runtime video shipped; WS1.3 post-fix smoke done; **WS3.1 Y task router + All Cloud shipped** (E2E `20261124-111232`); WS3.2 Offload A/B next |
 
 A final year project modelling a **3-tier vertical cloud gaming architecture** — **End Node (Z) → Middle Edge Gateway (Y) → Cloud Server (X)** — under simulated network latency degradation.
 
@@ -79,43 +79,43 @@ Rules:
 - **U is local to Z** and never appears in the router table.
 - **F–K and M–T are reserved** for future task splits; the semantic task count is not fixed.
 
-### Placement patterns (planned)
+### Placement patterns
 
-The whole-pipeline baseline above stays as the implemented comparison mode. The target is task-level placement, with a placement table on Y and pre-placed local copies (no live code migration in the first version).
+The whole-pipeline baseline stays available as the comparison mode (`placement: legacy`). The task-level patterns move individual tasks (A–E) between X and Y; Y holds the placement table and pre-placed copies, so no live code migration is needed.
 
 | Pattern | X responsibilities | Y responsibilities | Z | Status |
 |---|---|---|---|---|
-| **All Cloud** | A B C D E L | task router/relay | U | Planned |
-| **Offload A/B** | C D E L | A B + router | U | Planned |
-| **All Edge** | L | A B C D E + router | U | Planned |
+| **All Cloud** | A B C D E L | task router/relay | U | **Implemented (WS3.1)** |
+| **Offload A/B** | C D E L | A B + router | U | Planned (WS3.2) |
+| **All Edge** | L | A B C D E + router | U | Planned (WS3.3) |
 | **Pinned L** | L (pinned) + the A–E pattern | router | U | Rule across patterns |
 | **Legacy whole-pipeline** | A–E when healthy; idle in edge | A–E in `EDGE Y` | U | Implemented |
 
-Router / protocol (planned):
+Router / protocol (WS3.1 implemented):
 
-- Y holds the placement table (`{"A":"X", ...}`) and dispatches local tasks directly, remote tasks over the existing WebSocket with a timeout.
-- L is rejected from any placement that tries to move it; U never appears in the table.
-- Messages: `{"t":"placement","tasks":{...}}`, `{"t":"task","id":"A",...}`, `{"t":"task_result",...}`, `{"t":"leaderboard",...}`.
-- Per-task compute/network time is logged; the legacy `mode` stays a separate control.
+- Y holds the placement table (`{"A":"X", ...}`) in `state["placement"]`; the plan's `placement` field or the live `{"cmd":"placement","pattern":...}` switches it.
+- Y forwards the tasks X owns via `{"t":"placement","tasks":{...}}`; X replies `placement_ok` or an `error`. **L is rejected from any placement that tries to move it; U never appears in the table.**
+- X still runs the full A–E core, so a pattern that moves A/B (or C–E) out of X is rejected until WS3.2/WS3.3 implement those sub-pipelines (`X cannot skip A, B yet (WS3.2)`).
+- Per-task timings are collected on both tiers (`sim` = A–C inside `Game.step`, `render` = D, `encode` = E, `net` = hop) and merged into `state["task_stats"]` and the report's `environment.task_stats`.
 
 ### Pattern axes
 
 | Axis | Values | Current |
 |---|---|---|
-| **Placement pattern** | All Cloud / Offload A/B / All Edge / Pinned L | Planned (router/table) |
+| **Placement pattern** | All Cloud / Offload A/B / All Edge (+ legacy) | WS3.1 All Cloud; WS3.2/WS3.3 the rest |
 | **Legacy mode** | `auto` / `cloud` / `edge` | Implemented (whole-pipeline fallback) |
-| **Video preset** | A0 / A1 / A2 / intra / current | Recorded; runtime in WS2.3 |
+| **Video preset** | A0 / A1 / A2 / intra / current | Recorded + applied at runtime (WS2.3) |
 | Workload | light / medium / heavy | Implemented |
 | Input pattern | idle / strafe / circle / figure8 / shoot | WS2.1 |
 | Delay timeline | delay / mode / pause | WS2.1 |
 
-The test plan currently has `mode` (legacy) and `video_preset` (video); the planned placement axis will add `placement`/`pattern` alongside them. The test panel's "pattern" selector is therefore the placement pattern, not A0/A1/A2.
+The test plan has `mode` (legacy whole-pipeline), `video_preset` (video) and `placement` (task table). Placement and legacy `mode` are independent: `mode` decides which tier renders, `placement` decides which tasks run where. The test panel's placement selector is the task pattern, not A0/A1/A2.
 
 ### Implementation status
 
-- **Implemented:** whole-pipeline baseline; A–E game core; U menu/overlay/config (partial); H.264/JPEG; Y fallback; test runner/reports; Z test mode; WS2.2 Tk control panel; WS2.3 X runtime `video`/`stats`/`stop`.
+- **Implemented:** whole-pipeline baseline; A–E game core; U menu/overlay/config (partial); H.264/JPEG; Y fallback; test runner/reports; Z test mode; WS2.2 Tk control panel; WS2.3 X runtime `video`/`stats`/`stop`; WS3.1 task router + All Cloud placement + per-task metrics.
 - **Partial:** B (no pathfinding); U (leaderboard placeholder); no L.
-- **Planned:** Y task router/placement table; local A/B copies; L SQLite on X; leaderboard view; per-task metrics; test-panel placement axis.
+- **Planned:** Offload A/B and All Edge placements; L SQLite on X; leaderboard view.
 
 
 
@@ -141,6 +141,7 @@ FYP/
 │   ├── config.py                # env-overridable addresses, ports, codecs, thresholds
 │   ├── game.py                  # legacy deterministic core (selftest oracle only)
 │   ├── net.py                   # LAN address helper for startup banners
+│   ├── placement.py             # WS3.1 task table, patterns, per-task timings
 │   ├── report.py                # test report JSON/CSV + history
 │   ├── testplan.py              # plan/event validation, timeline, summary math
 │   ├── video.py                 # PyAV H.264 encoder/decoder
@@ -170,14 +171,16 @@ FYP/
 │       ├── ws1_1_a1.json        # WS1.1 baseline (preset A1)
 │       ├── ws1_1_a2.json        # WS1.1 baseline (preset A2)
 │       ├── ws1_3_a1.json        # WS1.3 post-fix (preset A1)
-│       └── ws2_1_smoke.json     # WS2.1 runner smoke
+│       ├── ws2_1_smoke.json     # WS2.1 runner smoke
+│       └── ws3_1_all_cloud.json # WS3.1 All Cloud + preset A1
 ├── tests/
 │   ├── test_game_core.py
 │   ├── test_testplan.py
 │   ├── test_report.py
 │   ├── test_panel_model.py      # WS2.2 plan/progress/protocol logic
 │   ├── test_panel_smoke.py      # WS2.2 Tk build + close
-│   └── test_xstats.py           # WS2.3 rolling encoder stats
+│   ├── test_xstats.py           # WS2.3 rolling encoder stats
+│   └── test_placement.py        # WS3.1 task table / patterns / timings
 ├── docs/
 │   ├── test-panel.md            # test protocol, reports, panel guide
 │   ├── notes/
@@ -471,8 +474,8 @@ $env:FYP_TEST = "1"
 
 What it does:
 
-- plan editor (name, warm-up/duration, seed, workload, mode, video preset, input pattern) with
-  Load/Save/Apply/Preview and the bundled plans in `tools/plans/`;
+- plan editor (name, warm-up/duration, seed, workload, mode, video preset, placement, input
+  pattern) with Load/Save/Apply/Preview and the bundled plans in `tools/plans/`;
 - timeline event editor (delay/mode/pattern/pause) and an ASCII timeline preview;
 - **Start / Pause / Resume / Terminate**, a progress bar, elapsed/remaining and the next event;
 - live Y/X/Z metrics (active tier, RTT both legs, injected delay, input→display, X/Y/Z fps, decode);
@@ -482,9 +485,30 @@ What it does:
 - a link back to the browser dashboard (`web/dashboard.html?ip=<Y_ADDRESS>`) as a remote monitor.
 
 The panel never talks to X directly — Y owns the run, the timeline and the report; **Apply video
-to X** (and a plan's `video_preset` at start) are forwarded by Y as WS2.3 runtime commands. The
-live metrics show X fps, encode p50/p95, keyframes/s, frame KB and the preset X confirmed. The
-placement pattern becomes selectable once the WS3 task router lands.
+to X** and **Apply placement** (and a plan's `video_preset`/`placement` at start) are forwarded by
+Y. The live metrics show X fps, encode p50/p95, keyframes/s, frame KB, the confirmed preset, the
+placement table and per-task p50s (sim/render/encode for X and Y).
+
+### WS3.1 — task router + All Cloud (implemented)
+
+`common/placement.py` holds the A–E/L table, the patterns and the per-task timing collector; Y
+applies the plan's `placement` (or a live `{"cmd":"placement","pattern":...}`) and forwards the
+tasks X owns.
+
+- **All Cloud** (`A B C D E L` on X, `U` on Z) is implemented and is the reference pattern.
+- **Offload A/B** and **All Edge** are defined but rejected by X today —
+  `X cannot skip A, B yet (WS3.2)` — because the sub-pipelines do not exist yet. Y records the
+  requested table and `placement_applied: false`.
+- **L is pinned to X**: `validate()` rejects any table that moves it. `U` is local to Z and never
+  appears in a table.
+- Per-task timings: `sim` (A–C inside `Game.step`), `render` (D), `encode` (E) and `net` (hop),
+  measured on both tiers, merged into `state["task_stats"]` and written to the report's
+  `environment.task_stats` (`{"sim": {"X": {...}, "Y": {...}}, ...}`).
+
+Local E2E `20261124-111232` (all three tiers on one PC, light workload, preset A1):
+`sim X 0.02 / Y 0.02 ms`, `render X 0.46 ms`, `encode X 5.21 ms` (render+encode),
+`net X 2.55 / Z 3.5 ms`, e2e p50 12.6 ms, X 60 fps. Offload A/B was requested and correctly
+rejected, then All Cloud re-applied.
 
 ### WS2.3 — X runtime video/stats/stop (implemented)
 
@@ -750,18 +774,20 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
   the cloud leg the edge tier is meant to hide; the Z↔Y hop is untouched.
 - **One game, one input.** Multiple Z clients can watch, but they share a single input state and
   there is one game instance per Y.
-- **Fixed encoding settings until WS2.3.** X and Y use H.264 at a fixed target bitrate/GOP with
-  JPEG fallback; there is no adaptive bitrate or congestion control. X uses a VBV buffer (0.5 s),
-  no scene-cut IDRs, and optionally intra-refresh. A dropped frame is repaired by the next
-  keyframe, or sooner when Z requests an IDR. The WS2.3 panel will switch GOP/resolution/
-  intra-refresh at runtime.
-- **Task-level placement not implemented.** The current X/Y behaviour is the whole-pipeline
-  baseline; the task router, placement table, local A/B copies and pinned L are planned. `mode`
-  is the legacy fallback; the test panel’s placement-pattern axis is future work.
+- **Encoding settings.** X and Y use H.264 at a target bitrate/GOP with JPEG fallback; there is no
+  adaptive bitrate or congestion control. X uses a VBV buffer (0.5 s), no scene-cut IDRs, and
+  optionally intra-refresh. A dropped frame is repaired by the next keyframe, or sooner when Z
+  requests an IDR. WS2.3 can switch GOP/resolution/intra-refresh at runtime, but the *choice* is
+  still manual (panel/plan).
+- **Task-level placement is partially implemented.** The router, placement table, pinned L rule
+  and All Cloud pattern are live (WS3.1); Offload A/B and All Edge are defined but X cannot skip
+  tasks yet (WS3.2/WS3.3), and Y has no local A/B copies. `mode` remains the legacy whole-pipeline
+  fallback and is independent of `placement`.
 - **Leaderboard / U partial.** The menu, overlays and config editor exist; the leaderboard display
   is a placeholder and L (SQLite on X) is not implemented.
-- **Test panel UI.** WS2.1 is the protocol/CLI; the Tk panel is WS2.2, so progress and report
-  access are currently terminal-based.
+- **Test panel UI.** WS2.1 (protocol/CLI) and WS2.2 (Tk panel) both exist; the CLI stays the
+  scriptable path, the panel the interactive one. Neither renders video itself — watch Z's window
+  or the browser dashboard.
 - **WS1.1 archive (historical).** A0/A1/A2 (GOP30 vs GOP120 vs 540p on the old X) are only reproducible with
   the old `4f189b9` code. The current lab X is at `cda0f52` (WS1.2); WS1.3 post-fix verification is complete (`20261123-153034`); the current RTT is higher, so a repeat is queued.
   The `logs/raw/phaseA_*` folder names are historical; `docs/References/roadmap.md` maps them.

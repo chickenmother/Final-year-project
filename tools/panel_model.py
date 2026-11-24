@@ -12,8 +12,10 @@ import io
 import json
 from pathlib import Path
 
+from common.placement import PATTERN_NAMES, describe as describe_placement
 from common.testplan import (
     EVENT_KINDS,
+    PLACEMENTS,
     PlanError,
     TestPlan,
     video_payload,
@@ -23,7 +25,7 @@ DEFAULT_Y_URI = "ws://127.0.0.1:8002"
 # Phases in which Y owns the run and the plan must not be edited underneath it.
 BUSY_STATES = ("starting", "warmup", "running", "paused")
 PLAN_FIELDS = ("name", "warmup_s", "duration_s", "seed", "workload", "mode",
-               "video_preset", "input_pattern")
+               "video_preset", "placement", "input_pattern")
 TIMELINE_CHARS = {"delay": "=", "mode": "M", "pattern": "i", "pause": "x"}
 CONTROLS = {"pause": "test_pause", "resume": "test_resume", "stop": "test_stop"}
 SUMMARY_KEYS = ("e2e", "rtt", "z_fps")
@@ -230,8 +232,23 @@ def metrics(state):
         "x_kf": fmt(x_stats.get("keyframes_s"), 2),
         "x_kb": fmt(x_stats.get("frame_kb"), 1),
         "x_video": video_label(state.get("x_video")),
+        "placement": describe_placement(state.get("placement")),
+        "task_sim": task_line(state.get("task_stats"), "sim"),
+        "task_render": task_line(state.get("task_stats"), "render"),
+        "task_encode": task_line(state.get("task_stats"), "encode"),
         "z_decode": fmt(z_stats.get("decode"), 1),
     }
+
+
+def task_line(task_stats, task):
+    """``X 1.2 / Y 0.4`` style p50 for one task across tiers."""
+    tiers = (task_stats or {}).get(task) or {}
+    parts = []
+    for tier in ("X", "Y"):
+        entry = tiers.get(tier) or {}
+        if entry.get("p50") is not None:
+            parts.append(f"{tier} {fmt(entry.get('p50'), 1)}")
+    return " / ".join(parts) or "-"
 
 
 def video_label(applied):
@@ -302,6 +319,13 @@ def x_stats_payload(on=True):
 
 def x_stop_payload():
     return {"cmd": "x_stop"}
+
+
+def placement_payload(pattern):
+    """Dashboard command that switches the router's placement (WS3.1)."""
+    if pattern not in PATTERN_NAMES:
+        raise PlanError(f"placement must be one of {', '.join(PATTERN_NAMES)}")
+    return {"cmd": "placement", "pattern": pattern}
 
 
 

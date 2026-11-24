@@ -29,29 +29,31 @@ WS1.3 are committed; the dev/feature/release model is in `docs/References/branch
 | **Done** | WS1.3 | Post-fix smoke on the pulled lab X; one Y/Z; `ws1_3_a1.json`; report + X log | report `20261123-153034`; p50 79.2 / p90 108.94 vs WS1.1-A1 62.4 / 85.8 | 1 session |
 | **Done** | WS2.2 | `tools/test_panel.py` Tk panel | start/pause/resume/terminate, timeline, live metrics, reports, Z window; E2E run `20261123-161423` | 2-3 sessions |
 | **Done** | WS2.3 | X `video` / `stats` / `stop` | panel switches presets without restarting X; E2E `20261123-164025` (live A1→A2, 60 fps) | 1-2 sessions |
-| **Now** | WS3.1 | Y task router + All Cloud | A-E/L tasks placed; per-task metrics | 2 sessions |
-| **Then** | WS3.2 | Offload A/B | A/B on Y; C-E/L on X; comparison report | 2 sessions |
+| **Done** | WS3.1 | Y task router + All Cloud | A-E/L placed on X; per-task metrics; E2E `20261124-111232` | 2 sessions |
+| **Now** | WS3.2 | Offload A/B | A/B on Y; C-E/L on X; comparison report | 2 sessions |
 | **Then** | WS3.3 | All Edge + Pinned L | edge result; leaderboard authority | 2 sessions |
 | **Then** | WS3.4 | L SQLite + U leaderboard view + metrics | leaderboard displayed; per-task data | 2 sessions |
 | **Final** | WS4.2 | Comparison report | FYP-ready WS1.1/WS1.3 and WS3.1-WS3.3 results | 2-3 sessions |
 | **Final** | WS4.3 | Docs/archive/final report | README/AGENTS/sync and report complete | ongoing |
 
 Dependencies: WS1.3 is done (report archived) but a repeat is worth doing once the network/RTT is
-recalibrated. WS2.2 and WS2.3 are done; the panel can now drive preset switches. WS3.1 is next;
-WS3.2 follows WS3.1; WS3.3/WS3.4 follow WS3.2. WS4.2 depends on WS1.3 and WS3.2/3.3. WS4.1 and
-WS4.3 run throughout. Adjust the sequence to the FYP deadline.
+recalibrated. WS2.2, WS2.3 and WS3.1 are done; the router holds a validated table (All Cloud
+applied, L pinned) and X acknowledges or rejects it. WS3.2 is next (A/B on Y + X sub-pipeline);
+WS3.3/WS3.4 follow. WS4.2 depends on WS1.3 and WS3.2/3.3. WS4.1 and WS4.3 run throughout.
+Adjust the sequence to the FYP deadline.
 
-## Current state (verified 2026-11-23)
+## Current state (verified 2026-11-24)
 
-- Repo on `feature/ws2.3-x-runtime` (branched from the merged `dev`/`main`; tag `v0.4-ws2.2`).
-- WS2.3 is implemented and tested; this change is uncommitted until the next push.
-- Lab X is at `cda0f52` (WS1.2) and must be pulled to the WS2.3 commit for the next X-side run;
-  the local 3-tier E2E used a local X (no lab X needed).
-- No Y/Z/X left running: the E2E X/Y/Z were stopped after the run (AGENTS cleanup rule).
-- Reports: WS1.1 A0/A1/A2, WS1.3-A1 `20261123-153034`, WS2.2 panel E2E `20261123-161423` and the
-  WS2.3 runtime-video E2E `20261123-164025` (A1 → A2 mid-run; X 60 fps, encode p50 4.96 ms,
-  p95 5.56 ms, 0.5 keyframes/s, Z 60 fps, e2e p50 15.4 ms on localhost).
-- Validation gate: 68 unit tests, selftest hash `30f043...`, and all test plans load.
+- Repo on `feature/ws3.1-task-router` (branched from `dev` @ `271e260`; tag `v0.4-ws2.2`).
+- WS3.1 is implemented and tested; this change is uncommitted until the next push.
+- Lab X is at `cda0f52` (WS1.2) and must be pulled to the current commit for the next lab run;
+  the WS3.1 E2E used a local X.
+- No X/Y/Z left running: the E2E tiers were stopped after the run (AGENTS cleanup rule).
+- Reports: WS1.1 A0/A1/A2, WS1.3-A1 `20261123-153034`, WS2.2 `20261123-161423`, WS2.3
+  `20261123-164025` and the WS3.1 All Cloud E2E `20261124-111232`
+  (sim X 0.02 / Y 0.02 ms, render X 0.46 ms, encode X 5.21 ms, net X 2.55 / Z 3.5 ms,
+  e2e p50 12.6 ms, X 60 fps; Offload A/B correctly rejected).
+- Validation gate: 90 unit tests, selftest hash `30f043...`, and all test plans load.
 
 ## Current progress
 
@@ -67,8 +69,8 @@ WS4.3 run throughout. Adjust the sequence to the FYP deadline.
 | WS2.1 Test runner/CLI | Done | `1c20dce`; 27 tests; plan/report protocol |
 | WS2.2 Tk panel | Done | `tools/test_panel.py` + `panel_model.py`; 28 new tests; E2E run `20261123-161423` |
 | WS2.3 X runtime video | Done | `video`/`stats`/`stop` + `common/xstats.py`; E2E `20261123-164025` |
-| WS3.1 Router + All Cloud | **Next build** | task table; A-E/L placement |
-| WS3.2 Offload A/B | Planned | local A/B copies on Y |
+| WS3.1 Router + All Cloud | Done | `common/placement.py`; All Cloud applied, L pinned; E2E `20261124-111232` |
+| WS3.2 Offload A/B | **Next build** | A/B local on Y; X sub-pipeline C-E |
 | WS3.3 All Edge + Pinned L | Planned | edge render; L on X |
 | WS3.4 L/U + metrics | Planned | SQLite L; leaderboard view; per-task data |
 | WS4.1 Local/lab validation | Ongoing | repeatable runs; duplicate-process hygiene |
@@ -88,9 +90,9 @@ first-frame e2e ~13.1 ms, decode ~3.9 ms; intra-refresh max frame ~17 KB.
 
 ## Next step
 
-1. Keep the WS1.3 `20261123-153034`, WS2.2 `20261123-161423` and WS2.3 `20261123-164025` reports with the archive.
-2. Build WS3.1: Y task router + placement table, starting with **All Cloud** (A-E/L on X, U on Z) and per-task metrics.
-3. Optionally pull the lab X to the WS2.3 commit and repeat WS1.3 with the panel driving A0/A1/A2/intra without restarts.
+1. Keep the WS1.3 `20261123-153034`, WS2.2 `20261123-161423`, WS2.3 `20261123-164025` and WS3.1 `20261124-111232` reports with the archive.
+2. Build WS3.2 (Offload A/B): give Y the local A/B path and let X run only C-E/L for that pattern, then compare per-task metrics with All Cloud.
+3. Optional: pull the lab X and repeat WS1.3 with the panel driving A0/A1/A2/intra without restarts.
 
 ## Old -> new mapping
 

@@ -62,6 +62,23 @@ class FrameStatsTests(unittest.TestCase):
         self.assertTrue(stats.mature(when=10.6))
         self.assertTrue(stats.mature(when=11.0, min_span=0.9))
 
+    def test_sim_and_render_p50(self):
+        stats = FrameStats(window_s=5.0)
+        for index in range(4):
+            stats.add(5.0, 1000, when=1.0 + index / 100,
+                      sim_ms=1.0 + index * 0.1, render_ms=2.0)
+        snap = stats.snapshot(when=1.04)
+        self.assertAlmostEqual(snap["sim_p50"], 1.15, places=2)
+        self.assertEqual(snap["render_p50"], 2.0)
+        self.assertEqual(snap["encode_p50"], 5.0)
+
+    def test_missing_sim_and_render_are_none(self):
+        stats = FrameStats(window_s=5.0)
+        stats.add(5.0, 1000, when=1.0)
+        snap = stats.snapshot(when=1.0)
+        self.assertIsNone(snap["sim_p50"])
+        self.assertIsNone(snap["render_p50"])
+
     def test_snapshot_is_json_safe(self):
         import json
         stats = FrameStats()

@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 
 try:
     import tkinter as tk
-    from tools import test_panel
+    from tools import panel_model, test_panel
     TK_AVAILABLE = True
 except Exception:            # pragma: no cover - headless environments
     TK_AVAILABLE = False
@@ -32,7 +32,7 @@ class PanelSmokeTests(unittest.TestCase):
             for _ in range(5):
                 root.update()
             self.assertIn(app.plan.name, ("WS2.2 panel run",))
-            self.assertEqual(len(app.form_vars), 8)
+            self.assertEqual(len(app.form_vars), len(panel_model.PLAN_FIELDS))
             # the controls follow the phase helper
             app._refresh_buttons("running")
             self.assertEqual(str(app.controls["start"]["state"]), "disabled")

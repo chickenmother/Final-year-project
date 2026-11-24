@@ -146,6 +146,18 @@ class TestPlanTests(unittest.TestCase):
         self.assertIn("x_encode_p95", SUMMARY_KEYS)
         self.assertIn("x_kf", SUMMARY_KEYS)
 
+    def test_placement_axis(self):
+        self.assertEqual(TestPlan().placement, "legacy")
+        plan = TestPlan.from_dict({"placement": "All_Cloud"})
+        self.assertEqual(plan.placement, "all_cloud")
+        self.assertEqual(plan.to_dict()["placement"], "all_cloud")
+        table = plan.placement_table()
+        self.assertEqual(table["L"], "X")
+        self.assertEqual(table["A"], "X")
+        self.assertIsNone(TestPlan(placement="legacy").placement_table())
+        with self.assertRaises(PlanError):
+            TestPlan.from_dict({"placement": "k8s"})
+
 
 
 if __name__ == "__main__":

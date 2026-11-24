@@ -869,5 +869,26 @@ HEAD   : 5ebe93a  "WS2.3: X runtime video/stats/stop + panel and report wiring"
   - Lab X remains at cda0f52; pull it before the next lab capture.
   - Next: WS3.1 task router + All Cloud placement.
 
+[2026-11-24 11:15 +09:00 | from Y / home PC — WS3.1 task router + All Cloud shipped]
+  - New: common/placement.py (A-E/L table, patterns, pinned-L/U validation, TaskStats,
+    merge_metrics). Plan gains a `placement` field (legacy/all_cloud/offload_ab/all_edge).
+  - Y router: applies plan.placement at test_start, live `{"cmd":"placement","pattern":...}`
+    or `{"tasks":{...}}`, forwards X-owned tasks as {"t":"placement","tasks":{...}} and stores
+    state.placement / placement_applied / x_placement / task_stats.
+  - X: accepts placement, replies placement_ok, rejects patterns that need it to skip A/B
+    ("X cannot skip A, B yet (WS3.2)"); now measures sim_ms and render_ms per frame.
+  - Per-task metrics: sim (A-C in Game.step), render (D), encode (E), net (hop), merged into
+    state.task_stats and report environment.task_stats. x_stats adds sim_p50/render_p50;
+    encode_p50 stays render+encode for WS1/WS2 comparability.
+  - Panel: Placement selector + Apply placement; metrics add placement and sim/render/encode
+    p50 per tier. Tests 68 -> 90.
+  - Local 3-tier E2E, report 20261124-111232: All Cloud applied (X confirms A-E/L), Offload A/B
+    correctly rejected, then All Cloud re-applied. sim X 0.02 / Y 0.02 ms, render X 0.46 ms,
+    encode X 5.21 ms, net X 2.55 / Z 3.5 ms, e2e p50 12.6 / p90 13.7 ms, X/Z 60 fps.
+  - Cleanup: X/Y/Z stopped after the run; no python tiers left.
+  - Validation: 90 tests, selftest hash 30f043222e75fabf0ec80d2cd7edf6df unchanged.
+  - Lab X still at cda0f52 (needs a pull before the next lab capture).
+  - Next: WS3.2 Offload A/B (A/B local on Y, X runs C-E/L).
+
 END OF SYNC
 

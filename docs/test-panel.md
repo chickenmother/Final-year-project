@@ -1,7 +1,8 @@
 # Test Control Panel
 
 Status: **WS2.1 implemented** (`1c20dce`), **WS2.2 implemented**
-(`tools/test_panel.py`) and **WS2.3 implemented** (X runtime `video`/`stats`/`stop`).
+(`tools/test_panel.py`), **WS2.3 implemented** (X runtime `video`/`stats`/`stop`) and
+**WS3.1 implemented** (task router + All Cloud placement).
 This document is the protocol/report reference; the README has the short
 version.
 
@@ -58,8 +59,8 @@ A plan is plain JSON. The full example lives in
 |---|---|---|
 | `workload` | `light`, `medium`, `heavy` | game profile (bots/obstacles/bullets) |
 | `mode` (legacy) | `auto`, `cloud`, `edge` | Y whole-pipeline: RTT auto-switch, force X, force Y |
-| `placement` (planned) | `all_cloud`, `offload_ab`, `all_edge`, `pinned` | task-level placement; task router planned |
-| `video_preset` | `current`, `A0`, `A1`, `A2`, `intra` | recorded in WS2.1; applied to X in WS2.3 |
+| `placement` | `legacy`, `all_cloud`, `offload_ab`, `all_edge` | WS3.1 task table (All Cloud live; the others wait for WS3.2/3.3) |
+| `video_preset` | `current`, `A0`, `A1`, `A2`, `intra` | recorded in WS2.1; applied to X at runtime (WS2.3) |
 | `input_pattern` | `idle`, `strafe`, `circle`, `figure8`, `shoot` | deterministic Z input |
 | `warmup_s` | 0–60 | excluded from the measurement |
 | `duration_s` | 0.1–600 | measurement window |
@@ -102,6 +103,7 @@ Panel → Y:
 | `x_video` | `{preset}` | WS2.3: `A0`/`A1`/`A2`/`intra` → forward `video` to X |
 | `x_stats` | `{on}` | WS2.3: subscribe/unsubscribe X encoder stats |
 | `x_stop` | — | WS2.3: stop X stepping/streaming (process stays up) |
+| `placement` | `{pattern}` or `{tasks:{...}}` | WS3.1: switch the router table; forwards the X-owned tasks to X |
 | `delay_ms` | number | legacy manual slider |
 
 Y → Z (inside the normal data socket, on a control queue ahead of frames):
@@ -122,6 +124,7 @@ the timeline delay events. WS2.3 adds the runtime control channel:
 {"t":"video","gop":120,"size":[960,540],"bitrate":4000000,"intra_refresh":false}
 {"t":"stats","on":true}
 {"t":"stop"}
+{"t":"placement","tasks":{"A":"X","B":"X","C":"X","D":"X","E":"X","L":"X"}}
 ```
 
 X answers `{"t":"video_ok","encoder":"libx264","gop":120,"size":[960,540],
@@ -156,7 +159,8 @@ The Y state (`state["test"]`) is pushed at 5 Hz:
 Y writes `logs/reports/<id>.json` and `.csv`:
 
 - **meta** — id, date/time, start/end, duration, plan, environment
-  (thresholds, game config, Y version, video preset/runtime/applied, paused total).
+  (thresholds, game config, Y version, video preset/runtime/applied, placement table/applied,
+  per-task `task_stats`, paused total).
 - **events** — applied timeline events with elapsed/wall times.
 - **samples** — 5 Hz: `t`, mode, RTT, injected delay, e2e, Z↔Y RTT, X/Y/Z FPS,
   `x_encode`/`x_encode_p95`/`x_kf` (WS2.3), Z decode, tick/score/HP, paused flag.
@@ -197,13 +201,15 @@ $env:FYP_TEST = "1"
 The panel:
 
 - edits the plan (name, warm-up/duration, seed, workload, mode, video preset,
-  input pattern) with Apply/Load/Save and the bundled plans in `tools/plans/`;
+  placement, input pattern) with Apply/Load/Save and the bundled plans in
+  `tools/plans/`;
 - edits timeline events (delay/mode/pattern/pause) and previews the timeline as
   ASCII bars, one row per event kind;
 - sends `test_start` / `test_pause` / `test_resume` / `test_stop`, shows a
   progress bar, elapsed/remaining and the next event;
 - shows live metrics from Y's state push (active tier, RTT both legs, injected
-  delay, input→display, X/Y/Z fps, Z decode; X encode arrives with WS2.3);
+  delay, input→display, X/Y/Z fps, X encode p50/p95, keyframes/s, frame KB,
+  placement table, per-task p50 for sim/render/encode, Z decode);
 - lists reports from Y, opens one as JSON and exports its samples as CSV;
 - launches End Z in test mode (`FYP_TEST=1`, `FYP_Y_IP` from the panel's Y
   address) and focuses the pygame window by its caption;
@@ -216,9 +222,8 @@ Notes:
   thread through a queue, so no Tk call happens off the main thread.
 - The reader reconnects every 2 s while the panel is open; **Disconnect** stops
   it.
-- `video_preset` now applies at `test_start` (WS2.3) and can also be pushed with
-  **Apply video to X** without starting a run; the placement pattern stays
-  unavailable until the WS3 router.
+- `video_preset` applies at `test_start` and via **Apply video to X** (WS2.3);
+  `placement` applies at `test_start` and via **Apply placement** (WS3.1).
 
 ## WS2.3 — X runtime video/stats/stop
 
@@ -246,6 +251,38 @@ Caveats:
 - The preset is applied at the start of a run; a mid-run switch is deliberate
   (panel button / `x_video`) and intended for WS1-style keyframe experiments.
 
+## WS3.1 — task router + All Cloud
+
+`common/placement.py` is the shared model; Y (`y_gateway.py`) is the router and
+`x_server.py` accepts `{"t":"placement","tasks":{...}}`.
+
+- Patterns: `legacy` (whole-pipeline), `all_cloud`, `offload_ab`, `all_edge`.
+  A plan's `placement` field applies at `test_start`; the live command
+  `{"cmd":"placement","pattern":"all_cloud"}` (or `{"tasks":{...}}`) switches it.
+- Validation: `L` is pinned to X and a table that moves it is rejected; `U` is
+  local to Z and cannot appear in a table; unknown tasks/tiers are rejected.
+- X confirms with `placement_ok` (Y stores `state["x_placement"]` and
+  `placement_applied: true`) or an `error`. X still runs the whole A–E core, so
+  a pattern that moves A/B or C–E out of X is rejected with
+  `X cannot skip A, B yet (WS3.2)` and `placement_applied` stays `false`.
+- Per-task metrics: Y times `sim` (A–C inside `Game.step`), its fallback
+  `render`/`encode`, and merges X's `sim_p50`/`render_p50`/`encode_p50` plus
+  the X↔Y and Z↔Y hops into `state["task_stats"]`, e.g.
+
+```json
+{"sim": {"Y": {"n": 120, "p50": 0.02, "p95": 0.03}, "X": {"n": 121, "p50": 0.02}},
+ "render": {"X": {"n": 121, "p50": 0.46}},
+ "encode": {"X": {"n": 121, "p50": 5.21}},
+ "net": {"X": {"n": 1, "p50": 2.55}, "Z": {"n": 1, "p50": 3.5}}}
+```
+
+`x_stats.encode_p50` stays "render + encode" (the WS1/WS2 log column) for
+comparability; `render_p50` and `sim_p50` are the new split.
+
+The report records `environment.placement`, `placement_table`,
+`placement_applied` and `task_stats`, so All Cloud can be compared with the
+later Offload/All Edge runs.
+
 ## Environment
 
 | Variable | Tier | Meaning |
@@ -272,6 +309,8 @@ The test config used by the unattended runs should keep the player alive:
 | Report has no X encode | X not linked, or `stats` never subscribed | WS2.3: the panel subscribes on start; check `x_stats` in Y's state and `X stats: on` in X's log |
 | `x_video` replies “Cloud X is not linked” | Y has no X connection (mode Y) | start/reconnect X; presets then apply without restarting X |
 | `video_ok` never arrives | encoder rebuild failed | check X's log for `video: encoder rebuild failed`; the previous encoder keeps streaming |
+| Placement shows `applied: false` | X rejected the table (it cannot skip tasks yet) | expected for `offload_ab`/`all_edge` until WS3.2/3.3; use `all_cloud` |
+| `task_stats` empty | no X link, or the run has not started | start a plan with X linked; `sim` comes from Y's tick loop |
 | Pause does not resume | `pause` event with `hold_s`, or panel still paused | resume from the panel; verify `state["test"]["state"]` |
 | Delay does not appear | event at/after `duration_s`, or next delay event resets it | check `events` and `state["delay_ms"]` |
 | Z freezes after an intra-refresh gap | Z env missing `FYP_X_INTRA_REFRESH=1` | start X and Z with the same value |
@@ -282,10 +321,12 @@ The test config used by the unattended runs should keep the player alive:
 - `common/testplan.py` — plan/event validation, presets, timeline, summary math.
 - `common/report.py` — report JSON/CSV, history, safe load.
 - `common/xstats.py` — WS2.3 rolling encoder stats (fps, encode p50/p95, keyframes/s).
+- `common/placement.py` — WS3.1 task table, patterns, per-task timings.
 - `x_server.py` — game engine, H.264 renderer and the WS2.3 `video`/`stats`/`stop`
-  handlers.
+  handlers plus the WS3.1 `placement` acknowledgement.
 - `y_gateway.py` — `TestRunner`, dashboard commands, delay/mode timeline,
-  Z control queue, X/Y FPS windows, report finalisation, X preset forwarding.
+  Z control queue, X/Y FPS windows, report finalisation, X preset/placement
+  forwarding and the task router.
 - `z_client.py` — `FYP_TEST=1`, test commands, input patterns, overlay, stats.
 - `tools/test_cli.py` — WS2.1 driver.
 - `tools/test_panel.py` — WS2.2 Tk panel (Tk + websocket shell).
@@ -294,5 +335,6 @@ The test config used by the unattended runs should keep the player alive:
 - `tests/test_testplan.py`, `tests/test_report.py` — unit tests.
 - `tests/test_panel_model.py`, `tests/test_panel_smoke.py` — WS2.2 tests.
 - `tests/test_xstats.py` — WS2.3 encoder-stats tests.
+- `tests/test_placement.py` — WS3.1 placement model tests.
 
 

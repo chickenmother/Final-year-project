@@ -185,6 +185,28 @@ class LiveStateTests(unittest.TestCase):
         self.assertEqual(pm.metrics({})["x_encode"], "-")
         self.assertEqual(pm.video_label(None), "-")
 
+    def test_metrics_placement_and_task_lines(self):
+        state = {"placement": {"A": "X", "B": "X", "C": "X", "D": "X",
+                               "E": "X", "L": "X"},
+                 "task_stats": {"sim": {"X": {"n": 60, "p50": 1.2},
+                                        "Y": {"n": 60, "p50": 0.4}},
+                                "render": {"X": {"n": 60, "p50": 2.5}},
+                                "encode": {}}}
+        values = pm.metrics(state)
+        self.assertIn("A/B/C/D/E/L on X", values["placement"])
+        self.assertEqual(values["task_sim"], "X 1.2 / Y 0.4")
+        self.assertEqual(values["task_render"], "X 2.5")
+        self.assertEqual(values["task_encode"], "-")
+        self.assertEqual(pm.metrics({})["placement"], "legacy whole-pipeline")
+
+    def test_placement_payload(self):
+        self.assertEqual(pm.placement_payload("all_cloud"),
+                         {"cmd": "placement", "pattern": "all_cloud"})
+        self.assertEqual(pm.placement_payload("legacy"),
+                         {"cmd": "placement", "pattern": "legacy"})
+        with self.assertRaises(PlanError):
+            pm.placement_payload("k8s")
+
 
     def test_buttons_per_phase(self):
         self.assertTrue(pm.buttons("idle")["start"])

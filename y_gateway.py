@@ -6,6 +6,14 @@ from websockets.asyncio.server import serve
 from common import config as C
 from common import report as report_mod
 from common.net import lan_ip, quiet_handshake_errors
+from common.placement import (
+    PlacementError,
+    TaskStats,
+    describe as describe_placement,
+    merge_metrics,
+    pattern_table,
+    validate as validate_placement,
+)
 from common.testplan import MODE_OVERRIDE, PlanError, TestPlan, video_payload
 from common.win import hires_timer
 hires_timer()
@@ -22,6 +30,8 @@ state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
          "e2e": 0.0, "tick": 0, "linked": False, "playing": False,
          "paused": False, "mode_override": None, "test": None,
          "z_stats": {}, "x_stats": {}, "x_video": {}, "x_fps": 0.0, "y_fps": 0.0,
+         "placement": {}, "placement_pattern": "legacy", "placement_applied": False,
+         "x_placement": {}, "task_stats": {},
          "reports": []}
 inp = {"keys": "", "seq": 0, "latch": False}
 zs = {}                # Z connection -> frame queue + capability slot
@@ -36,6 +46,7 @@ y_force_key = False    # force an IDR on the next EDGE Y frame
 x_frame_times = collections.deque()     # X frames received (for x_fps)
 y_frame_times = collections.deque()     # frames broadcast by Y (for y_fps)
 test_runner = None
+task_stats = TaskStats()               # per-task timings measured on Y (WS3.1)
 REPORT_DIR = os.path.join("logs", "reports")
 
 
@@ -226,6 +237,16 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
                   f"intra-refresh={state['x_video'].get('intra_refresh')}")
         elif m["t"] == "stopped":
             print(f"[{time.strftime('%X')}] X stopped by request")
+        elif m["t"] == "placement_ok":
+            # WS3.1: Cloud X confirms the tasks Y's router gave it.
+            state["x_placement"] = dict(m.get("tasks") or {})
+            state["placement_applied"] = True
+            print(f"[{time.strftime('%X')}] X tasks: "
+                  f"{', '.join(state['x_placement'])}")
+        elif m["t"] == "error" and m.get("command") == "placement":
+            state["placement_applied"] = False
+            print(f"[{time.strftime('%X')}] placement rejected by X: "
+                  f"{m.get('message')}")
 
 
 async def tick_loop():
@@ -242,7 +263,9 @@ async def tick_loop():
             keys += " "                # a short tap between two ticks is not lost
         inp["latch"] = False
         seq = inp["seq"]
+        t_sim = time.perf_counter()
         game.step(keys)                # Y ALWAYS runs the game (same code as X) -> instant fallback
+        task_stats.add("sim", (time.perf_counter() - t_sim) * 1000, "Y")
         state["tick"] = game.tick
         state["game"] = {
             "hp": max(0, game.player.hp),
@@ -262,8 +285,14 @@ async def tick_loop():
                     if y_force_key:
                         y_encoder.force_keyframe()
                         y_force_key = False
+                    t_render = time.perf_counter()
                     frame = game.render_surface(C.Y_SIZE, smooth=False)
-                    for payload, key in y_encoder.encode_surface(frame):
+                    t_encode = time.perf_counter()
+                    packets = y_encoder.encode_surface(frame)
+                    task_stats.add("render", (t_encode - t_render) * 1000, "Y")
+                    task_stats.add("encode",
+                                   (time.perf_counter() - t_encode) * 1000, "Y")
+                    for payload, key in packets:
                         # Lowercase 'y' marks H.264; byte 1 is the keyframe flag.
                         broadcast(b"y" + bytes([1 if key else 0])
                                   + struct.pack("!II", game.tick, seq) + payload,
@@ -291,6 +320,7 @@ async def ping_loop():
             up.put(json.dumps({"t": "ping", "ts": now}))
         state["x_fps"] = window_fps(x_frame_times, now)
         state["y_fps"] = window_fps(y_frame_times, now)
+        refresh_task_stats()
         if test_runner is not None:
             test_runner.tick(now)
         log_w.writerow([round(time.time(), 3), state["mode"], round(state["rtt"], 1),
@@ -311,6 +341,14 @@ def window_fps(times, now):
     while times and times[0] < now - 1.0:
         times.popleft()
     return float(len(times))
+
+
+def refresh_task_stats():
+    """Merge Y's per-task timings with X's p50s and the measured hops (WS3.1)."""
+    state["task_stats"] = merge_metrics(task_stats.snapshot(),
+                                        state.get("x_stats"),
+                                        state.get("rtt"),
+                                        state.get("rtt_zy"))
 
 
 def send_to_z(data):
@@ -446,6 +484,23 @@ class TestRunner:
         else:
             print(f"[{time.strftime('%X')}] test: Cloud X not linked; "
                   f"video preset {plan.video_preset} recorded only")
+        # WS3.1: apply the plan's task placement and tell X which tasks it owns.
+        table = plan.placement_table()
+        state["placement"] = table or {}
+        state["placement_pattern"] = plan.placement
+        state["placement_applied"] = False
+        if table is None:
+            print(f"[{time.strftime('%X')}] test: placement legacy "
+                  f"(whole-pipeline)")
+        elif state.get("linked"):
+            send_x_control({"t": "placement",
+                            "tasks": {task: tier for task, tier in table.items()
+                                      if tier == "X"}})
+            print(f"[{time.strftime('%X')}] test: placement {plan.placement} "
+                  f"({describe_placement(table)})")
+        else:
+            print(f"[{time.strftime('%X')}] test: Cloud X not linked; "
+                  f"placement {plan.placement} recorded only")
         payload = {"t": "test", "cmd": "start", "workload": plan.workload,
                    "seed": plan.seed, "pattern": plan.input_pattern,
                    "plan": plan.name}
@@ -682,6 +737,10 @@ class TestRunner:
                               else "current (fixed)"),
             "video_applied": self.video_applied,
             "video_requested": self.video_requested,
+            "placement": self.plan.placement,
+            "placement_table": state.get("placement") or {},
+            "placement_applied": state.get("placement_applied", False),
+            "task_stats": state.get("task_stats") or {},
             "paused_s": round(self.paused_total, 2),
             "game_config": getattr(game, "config", None),
             "mode_final": state.get("mode"),
@@ -847,6 +906,29 @@ async def dash_handler(ws):
                 elif cmd == "get_report":
                     report = report_mod.load(REPORT_DIR, m.get("id"))
                     await ws.send(json.dumps({"t": "report", "report": report}))
+                elif cmd == "placement":
+                    # WS3.1: switch the router's placement live.
+                    raw = m.get("tasks")
+                    if raw is not None:
+                        table = validate_placement(raw, require_all=True)
+                        state["placement_pattern"] = "custom"
+                    else:
+                        name = str(m.get("pattern") or "").strip().lower()
+                        table = pattern_table(name)
+                        state["placement_pattern"] = name
+                    state["placement"] = table or {}
+                    state["placement_applied"] = False
+                    if table is None:
+                        print(f"[{time.strftime('%X')}] placement: legacy "
+                              f"whole-pipeline")
+                    elif not send_x_control({
+                            "t": "placement",
+                            "tasks": {task: tier for task, tier in table.items()
+                                      if tier == "X"}}):
+                        raise RuntimeError("Cloud X is not linked")
+                    else:
+                        print(f"[{time.strftime('%X')}] placement: "
+                              f"{describe_placement(table)}")
                 elif cmd == "x_video":
                     # WS2.3: apply an A0/A1/A2/intra preset without restarting X.
                     payload = video_payload(m.get("preset"))

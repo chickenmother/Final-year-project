@@ -17,6 +17,8 @@ MODES = ("auto", "cloud", "edge")
 INPUT_PATTERNS = ("idle", "strafe", "circle", "figure8", "shoot")
 EVENT_KINDS = ("delay", "mode", "pause", "pattern")
 VIDEO_PRESETS = ("current", "A0", "A1", "A2", "intra")
+# WS3.1 task placement axis; "legacy" keeps the whole-pipeline RTT fallback.
+PLACEMENTS = ("legacy", "all_cloud", "offload_ab", "all_edge")
 
 MAX_DELAY_MS = 400
 MAX_DURATION_S = 600.0
@@ -169,6 +171,7 @@ class TestPlan:
     workload: str = "light"
     mode: str = "auto"
     video_preset: str = "current"
+    placement: str = "legacy"
     input_pattern: str = "strafe"
     events: list[Event] = field(default_factory=list)
 
@@ -191,6 +194,8 @@ class TestPlan:
             mode=_choice(raw.get("mode"), "mode", MODES, "auto"),
             video_preset=_choice(raw.get("video_preset"), "video_preset",
                                  VIDEO_PRESETS, "current"),
+            placement=_choice(raw.get("placement"), "placement", PLACEMENTS,
+                              "legacy"),
             input_pattern=_choice(raw.get("input_pattern"), "input_pattern",
                                   INPUT_PATTERNS, "strafe"),
             events=events,
@@ -207,6 +212,7 @@ class TestPlan:
             "workload": self.workload,
             "mode": self.mode,
             "video_preset": self.video_preset,
+            "placement": self.placement,
             "input_pattern": self.input_pattern,
             "events": [e.to_dict() for e in self.sorted_events()],
         }
@@ -224,6 +230,8 @@ class TestPlan:
             raise PlanError("mode is invalid")
         if self.video_preset not in VIDEO_PRESETS:
             raise PlanError("video_preset is invalid")
+        if self.placement not in PLACEMENTS:
+            raise PlanError("placement is invalid")
         if self.input_pattern not in INPUT_PATTERNS:
             raise PlanError("input_pattern is invalid")
         for ev in self.events:
@@ -258,6 +266,14 @@ class TestPlan:
     def video_command(self):
         """Runtime X ``video`` command for this plan; ``None`` for ``current``."""
         return video_payload(self.video_preset)
+
+    def placement_table(self):
+        """Task table for this plan's placement; ``None`` for ``legacy``."""
+        if self.placement == "legacy":
+            return None
+        # Imported lazily: common.placement imports this module's percentile.
+        from common.placement import pattern_table
+        return pattern_table(self.placement)
 
     def segments(self):
         """Return non-overlapping display segments for the timeline UI."""
