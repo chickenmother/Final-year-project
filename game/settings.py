@@ -232,6 +232,26 @@ def _set(cfg, path, value):
     target[path[-1]] = value
 
 
+def merge_config(base, overlay):
+    """Deep-merge ``overlay`` onto ``base`` and return a new dict.
+
+    Used by End Z when Middle Y sends a test-specific overlay (WS3.4.1): the
+    player keeps the machine's own tuning except for the keys the overlay sets.
+    """
+    out = copy.deepcopy(base) if isinstance(base, dict) else {}
+
+    def merge(target, source):
+        for key, value in (source or {}).items():
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                merge(target[key], value)
+            else:
+                target[key] = copy.deepcopy(value)
+
+    if isinstance(overlay, dict):
+        merge(out, overlay)
+    return out
+
+
 def normalize_config(raw=None):
     """Return a complete, validated config (unknown keys are ignored)."""
     cfg = _merge_defaults(DEFAULT_CONFIG, raw if isinstance(raw, dict) else {})

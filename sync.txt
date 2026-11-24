@@ -1012,5 +1012,22 @@ HEAD   : 2017b69  "WS4.2: cross-pattern comparison tool (markdown/CSV from repor
     and a "common problems" table.
   - Docs-only change; 116 tests + all plans still load; no behaviour change.
 
+[2026-11-24 13:35 +09:00 | from Y / home PC — tests no longer end early (safe HP overlay)]
+  - Cause of the short runs: the match config comes from Z, so a low-HP game_config ended the
+    match before duration_s (a 1-HP config died in seconds).
+  - Fix (WS3.4.1): Y sends {"safe": {...}} with the test start; Z deep-merges it onto its own
+    config before the match. Overlay: player.max_hp=1000, obstacle_damage=0, bot_damage=0,
+    bot.bullet_damage=0. First attempt missed bullets (HP 1000 -> 200 in 20 s) - now included,
+    verified 1000 HP after 20 s.
+  - game/settings.py: merge_config(base, overlay) deep merge (untouched keys preserved, base not
+    mutated); 1 new test (117 total).
+  - FYP_TEST_SAFE=0 on Y disables the overlay for runs that must end in a game over (leaderboard
+    tests). Z logs "test-safe config: hp=..., ...".
+  - Live check on isolated ports 8010-8012 with a 1-HP Z config: report 20261124-133049,
+    reason=duration, 20.1 s, 100 samples, last hp=1000.
+  - Docs: README (safe runs), docs/test-panel.md (Safe section, env table, walkthrough note).
+  - 117 tests, selftest hash unchanged. My isolated tiers stopped; the user's panel/Z left alone.
+  - Restart Y and Z after pulling: the overlay needs both sides.
+
 END OF SYNC
 

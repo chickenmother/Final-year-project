@@ -80,10 +80,21 @@ Event kinds:
 
 ## Safe / unattended runs
 
-The test config should make the match unable to end. Use the isolated config
-from `tools/autoplay_z.ps1` (`player.max_hp=1000`, zero obstacle/bot damage,
-`light` workload) and point Z at it with `FYP_GAME_CONFIG`. `FYP_TEST=1` then
-runs the scripted inputs; the game window stays open.
+A measurement must not end early, and **Y enforces that for every test run**: the test-start
+message carries a safe overlay (`player.max_hp=1000`, `player.obstacle_damage=0`,
+`player.bot_damage=0`, `bot.bullet_damage=0`) which Z deep-merges onto its own config before the
+match starts. Your `game_config.json` keeps its other tuning, and Z prints the effective values:
+
+```
+[13:30:49] test-safe config: hp=1000, obstacle_damage=0, bot_damage=0, bot_bullet_damage=0
+```
+
+- Set `FYP_TEST_SAFE=0` on Y when a run is *supposed* to end in a game over (e.g. testing the
+  leaderboard submit path).
+- `FYP_TEST=1` still runs the scripted inputs; the game window stays open.
+- `tools/autoplay_z.ps1` remains useful for manual play with a fragile-free config, but tests no
+  longer depend on it.
+- With damage at zero, a test match never submits to L (no game over) — that is intentional.
 
 ## Protocol
 
@@ -442,11 +453,11 @@ ticks of medium workload, plus a remote-C tick-for-tick comparison).
 | `FYP_HIGH_MS`, `FYP_LOW_MS`, `FYP_BAD_COUNT`, `FYP_RECOVER_S` | Y | RTT mode-switch thresholds |
 | `FYP_Z_INPUT_HZ` | Z | input sample rate (default 120) |
 | `FYP_PLAYER` | Y | name stored in the leaderboard entry (default `player`) |
+| `FYP_TEST_SAFE=0` | Y | disable the safe test overlay (HP/damage), so a run can end in a game over |
 
-The test config used by the unattended runs should keep the player alive:
-`player.max_hp=1000`, `player.obstacle_damage=0`, `player.bot_damage=0`, and a
-`light` workload. `tools/autoplay_z.ps1` generates this in
-`%TEMP%\fyp_ws1\game_config.json` and can start Z with it.
+Test runs overlay a safe player (`max_hp=1000`, zero obstacle/bot/contact **and bullet** damage) on
+Z's own config, so the match cannot end before `duration_s`. `tools/autoplay_z.ps1` still generates
+an immortal config in `%TEMP%\fyp_ws1\game_config.json` for manual play.
 
 ## Troubleshooting
 

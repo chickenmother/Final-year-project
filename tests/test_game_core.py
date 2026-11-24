@@ -9,6 +9,7 @@ from game.settings import (
     DEFAULT_CONFIG,
     all_fields,
     load_config,
+    merge_config,
     normalize_config,
     profile_from_config,
     save_config,
@@ -152,6 +153,18 @@ class ConfigTests(unittest.TestCase):
         cfg = normalize_config({"player": {"max_hp": 99999, "speed": -4}})
         self.assertEqual(cfg["player"]["max_hp"], 1000)
         self.assertEqual(cfg["player"]["speed"], 1)
+
+    def test_merge_config_keeps_untouched_keys(self):
+        base = normalize_config({"player": {"max_hp": 40, "speed": 9},
+                                 "profiles": {"medium": {"bots": 3}}})
+        merged = merge_config(base, {"player": {"max_hp": 1000,
+                                                "obstacle_damage": 0}})
+        self.assertEqual(merged["player"]["max_hp"], 1000)
+        self.assertEqual(merged["player"]["obstacle_damage"], 0)
+        self.assertEqual(merged["player"]["speed"], 9)          # kept
+        self.assertEqual(merged["profiles"]["medium"]["bots"], 3)  # kept
+        self.assertEqual(base["player"]["max_hp"], 40)          # not mutated
+        self.assertEqual(normalize_config(merged)["player"]["max_hp"], 1000)
 
 
 class StepSplitTests(unittest.TestCase):

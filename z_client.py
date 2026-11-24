@@ -5,7 +5,7 @@ import pygame
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.client import connect
 from common import config as C
-from game.settings import load_config, normalize_config
+from game.settings import load_config, merge_config, normalize_config
 from ui.config_menu import ConfigMenu
 from ui.leaderboard import LeaderboardScreen
 from ui.menu import Menu
@@ -199,6 +199,20 @@ async def main():
                 elif kind == "test":
                     cmd = m.get("cmd")
                     if cmd == "start":
+                        test_config = game_config
+                        if m.get("safe"):
+                            # WS3.4.1: Y overlays a measurement-safe player so
+                            # the match cannot end before duration_s.
+                            test_config = normalize_config(
+                                merge_config(game_config, m["safe"]))
+                            print(f"[{time.strftime('%X')}] test-safe config: "
+                                  f"hp={test_config['player']['max_hp']}, "
+                                  f"obstacle_damage="
+                                  f"{test_config['player']['obstacle_damage']}, "
+                                  f"bot_damage="
+                                  f"{test_config['player']['bot_damage']}, "
+                                  f"bot_bullet_damage="
+                                  f"{test_config['bot']['bullet_damage']}")
                         st["workload"] = m.get("workload", "light")
                         st["pattern"] = m.get("pattern", st["pattern"])
                         st["test_state"] = "running"
@@ -217,7 +231,7 @@ async def main():
                         await ws.send(json.dumps({"t": "start", "mode": "vs_bot",
                                                   "workload": st["workload"],
                                                   "seed": int(m.get("seed", 12345)),
-                                                  "config": game_config}))
+                                                  "config": test_config}))
                     elif cmd == "pause":
                         st["test_state"] = "paused"
                     elif cmd == "resume":

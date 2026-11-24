@@ -55,6 +55,14 @@ offload_window = collections.deque()   # (t, bytes) over the last second
 edge_over_sent = False                 # WS3.3: Y owns the game-over event
 lb_pending = {}                        # ws -> timeout task for a pending L request
 Y_BUILD = "ws3.4"                      # advertised by {"t":"version"}
+# WS3.4.1: a measurement must not end early, so tests overlay a safe player on
+# Z's own config (FYP_TEST_SAFE=0 restores the raw match tuning).  Bot *bullets*
+# are the damage source during a normal match, so they are zeroed as well.
+SAFE_TESTS = os.environ.get("FYP_TEST_SAFE", "1") != "0"
+SAFE_TEST_CONFIG = {
+    "player": {"max_hp": 1000, "obstacle_damage": 0, "bot_damage": 0},
+    "bot": {"bullet_damage": 0},
+}
 
 
 def count_offload(nbytes):
@@ -623,6 +631,8 @@ class TestRunner:
         payload = {"t": "test", "cmd": "start", "workload": plan.workload,
                    "seed": plan.seed, "pattern": plan.input_pattern,
                    "plan": plan.name}
+        if SAFE_TESTS:
+            payload["safe"] = SAFE_TEST_CONFIG      # WS3.4.1: HP 1000, no damage
         if not send_to_z(json.dumps(payload)):
             self.phase = "error"
             self.error = "End Z is not reachable"

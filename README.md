@@ -458,9 +458,12 @@ $env:FYP_TEST = "1"
     --y ws://<Y_DASHBOARD_ADDRESS>:8002 --plan tools\plans\ws2_1_smoke.json
 ```
 
-For unattended runs the match must be unable to end. The test config keeps the player alive
-(`player.max_hp=1000`, zero obstacle/bot damage, `light` workload); point Z at it with
-`FYP_GAME_CONFIG` (or let `tools\autoplay_z.ps1` generate it under `%TEMP%\fyp_ws1`).
+For unattended runs the match must be unable to end. **Test runs now enforce that themselves**:
+Y sends a safe overlay with the test start (`player.max_hp=1000`, `obstacle_damage=0`,
+`bot_damage=0`, `bot.bullet_damage=0`) and Z merges it onto its own config, so a normal
+`game_config.json` (or a deliberately fragile one) still runs the full duration. `FYP_TEST_SAFE=0`
+on Y disables the overlay when a run is supposed to end in a game over. Z logs the effective
+values as `test-safe config: hp=…, …`.
 
 Y writes `logs/reports/<id>.json` and `.csv`: date/time, plan, environment, applied events,
 5 Hz samples (mode, RTT, injected delay, e2e, X/Y/Z FPS, decode/encode when available) and
