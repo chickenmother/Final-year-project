@@ -1,10 +1,10 @@
 SYNC LOG — shared notes between Cloud X / Middle Y / End Z
 File created : 2026-11-03 12:32 +09:00   (from Y)
-Last updated : 2026-11-24 11:20 +09:00   (from Y / home PC)
+Last updated : 2026-11-24 11:45 +09:00   (from Y / home PC)
 
 Repo   : https://github.com/chickenmother/Final-year-project.git
-Branch : feature/ws3.1-task-router   (from dev @ 271e260; main has PR #1)
-HEAD   : c8fdf02  "WS3.1: task router + All Cloud placement and per-task metrics"
+Branch : feature/ws3.1-task-router   (from dev; main has PR #1)
+HEAD   : 19c9072  "Add run_panel.cmd launcher for the WS2.2 test panel"
          (home Y/Z; lab X at cda0f52 (WS1.2); WS1.3 + WS2.2 + WS2.3 + WS3.1 complete)
 
 ====================================================================
