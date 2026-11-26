@@ -438,7 +438,6 @@ class PanelApp:
                   ("x_encode", "X encode p50 ms"), ("x_encode_p95", "p95 ms"),
                   ("x_kf", "X keyframes/s"), ("x_kb", "frame KB"),
                   ("x_video", "X video"), ("placement", "placement"),
-                  ("chain", "chain (WS3.5)"),
                   ("task_sim", "sim p50 X / Y"), ("task_hit", "hit p50 X / Y"),
                   ("task_render", "render p50 X / Y"),
                   ("task_encode", "encode p50 X / Y"),
@@ -453,9 +452,17 @@ class PanelApp:
                       font=("Consolas", 9)).grid(row=row, column=column * 2 + 1,
                                                  sticky="w", padx=(0, 14),
                                                  pady=1)
+        # WS3.5: the chain line is long, so it gets its own full-width row.
+        chain_row = ttk.Frame(frame)
+        chain_row.grid(row=11, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        ttk.Label(chain_row, text="chain (WS3.5)").pack(side="left", padx=(0, 4))
+        var = tk.StringVar(value="-")
+        self.metric_vars["chain"] = var
+        ttk.Label(chain_row, textvariable=var, anchor="w",
+                  font=("Consolas", 9)).pack(side="left")
         ttk.Label(frame, text="intra-refresh needs Z started with "
                               "FYP_X_INTRA_REFRESH=1",
-                  foreground="#666").grid(row=11, column=0, columnspan=4,
+                  foreground="#666").grid(row=12, column=0, columnspan=4,
                                           sticky="w", pady=(4, 0))
 
     def _build_reports_frame(self, parent):

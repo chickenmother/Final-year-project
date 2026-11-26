@@ -225,6 +225,32 @@ def merge_channels(into, other):
     return into
 
 
+def report_fields(channels, x_channels, chain=None, pixels_fmt=None,
+                  encode_fps=None):
+    """The WS3.5 keys a report always carries.
+
+    A preset run has no chain, so it records ``crossings: 0`` / ``stalls: 0``
+    and empty channels rather than omitting the keys — the comparison tooling
+    then reads the same shape for every pattern.
+    """
+    channels = dict(channels or {})
+    x_channels = dict(x_channels or {})
+    return {
+        "chain": chain.pattern if chain is not None else {},
+        "crossings": len(chain.crossings) if chain is not None else 0,
+        "stream_tier": chain.stream_tier if chain is not None else None,
+        "pixels_format": (channels.get("pixel_fmt")
+                          or (pixels_fmt if chain is not None else None)),
+        "channels": channels,
+        "channels_x": x_channels,
+        "stalls": (int(channels.get("stalls") or 0)
+                   + int(x_channels.get("stalls") or 0)),
+        "encode_fps": encode_fps if chain is not None else None,
+        "stage_p50": channels.get("stage_p50") or {},
+        "stage_p50_x": x_channels.get("stage_p50") or {},
+    }
+
+
 # ---------------------------------------------------------------------------
 # Wire format for the custom chain (WS3.5).
 #

@@ -278,12 +278,17 @@ def chain_line(state):
     uses a preset (or nothing is running).
     """
     state = state or {}
+    warning = str(state.get("chain_warning") or "")
+    if warning:
+        return "⚠ " + warning
     channels = state.get("channels") or {}
     x_channels = state.get("x_channels") or {}
     if not channels and not x_channels:
         return "-"
     parts = []
     crossings = state.get("chain_crossings")
+    if crossings is None:                 # the counters also carry it
+        crossings = channels.get("crossings")
     if crossings is not None:
         parts.append(f"{int(crossings)} crossing(s)")
     tier = channels.get("stream_tier") or state.get("mode") or "-"

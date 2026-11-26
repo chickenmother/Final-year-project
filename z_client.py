@@ -52,8 +52,8 @@ async def fetch_leaderboard(top=10, timeout=4.0):
             while True:
                 left = end - time.monotonic()
                 if left <= 0:
-                    return ([], "Y did not answer in time (is it running the "
-                                "ws3.4 build?)", None)
+                    return ([], "Y did not answer in time (is Middle Y "
+                                "running the current build?)", None)
                 raw = await asyncio.wait_for(ws.recv(), timeout=left)
                 if not isinstance(raw, (str, bytes, bytearray)):
                     continue
@@ -65,13 +65,13 @@ async def fetch_leaderboard(top=10, timeout=4.0):
                     continue
                 if msg.get("t") == "version" and not msg.get("leaderboard"):
                     return [], (f"Middle Y is an older build ({msg.get('y')}); "
-                                f"restart it from the ws3.4 code"), None
+                                f"restart it from the current code"), None
                 if msg.get("t") == "leaderboard":
                     return (msg.get("rows") or [], msg.get("error"),
                             msg.get("count"))
     except ConnectionClosed:
         return [], ("Middle Y closed the link — it is probably an older build; "
-                    "restart it from the ws3.4 code"), None
+                    "restart it from the current code"), None
     except (OSError, asyncio.TimeoutError) as exc:
         return [], f"Y unavailable ({type(exc).__name__})", None
 

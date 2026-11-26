@@ -653,7 +653,14 @@ independently, so all 32 A–E assignments are expressible; the presets stay as 
   Z no longer treats a gap as a lost frame in that case, so a chain cannot fall into the
   gap → IDR → freeze loop. Frames keep their source tick, sequence and `seq` as before.
 - **Report**: `crossings`, `stream_tier`, `pixels_format`, `channels`/`channels_x` (state/pixel
-  messages and bytes, mirror echo, stalls), `encode_fps` and `stage_p50`/`stage_p50_x`.
+  messages and bytes, mirror echo, stalls), `encode_fps` and `stage_p50`/`stage_p50_x`. Every
+  report carries these keys — a preset run records `crossings: 0`, `stalls: 0` and empty channels,
+  so the comparison tooling sees one shape for all patterns (`common/pipeline.report_fields`).
+- **Build guard**: WS3.5 changes both gateways and Z, so the tiers must share a commit. Y stamps
+  `Y_BUILD` (`ws3.5`) in `{"t":"version"}`; X stamps `X_BUILD` in every `placement_ok`. If an older
+  X accepts a custom table without echoing `custom: true`, Y prints
+  `WARNING: Cloud X (<build>) did not confirm chain support` and the panel's **chain (WS3.5)**
+  line shows `⚠ …` — a stale lab X cannot silently produce a one-tier "chain".
 
 Reproducible plans: `tools/plans/ws3_5_pipeline_on_y.json` (A/B on X, C/D/E on Y),
 `ws3_5_split_ab.json` (A on X, B on Y, C-E on X), `ws3_5_pixels.json` / `ws3_5_pixels_30s.json`
@@ -880,7 +887,8 @@ version lines too: a different Python version is the most likely reason for a mi
 
 Covers the game core (including the `step_a`/`step_b`/`step_c` splits), config clamping,
 snapshot/restore determinism, test-plan validation/timeline, report writing, the panel model and
-the WS3.5 placement/chain model (150 tests).
+the WS3.5 placement/chain model (155 tests). `tools/check_plans.py` loads and validates every
+bundled plan, so a plan-schema change cannot silently break `tools/plans/*.json`.
 
 ### Test runner
 
@@ -951,10 +959,17 @@ The `rtt_ms` and `e2e_ms` columns are measured inside one process and do not dep
   optionally intra-refresh. A dropped frame is repaired by the next keyframe, or sooner when Z
   requests an IDR. WS2.3 can switch GOP/resolution/intra-refresh at runtime, but the *choice* is
   still manual (panel/plan).
-- **Task-level placement is partially implemented.** The router, placement table, pinned L rule
-  and All Cloud pattern are live (WS3.1); Offload A/B and All Edge are defined but X cannot skip
-  tasks yet (WS3.2/WS3.3), and Y has no local A/B copies. `mode` remains the legacy whole-pipeline
+- **Task-level placement is implemented for A–E.** All Cloud (WS3.1), Offload A/B (WS3.2),
+  All Edge (WS3.3) and any custom A–E chain (WS3.5) run and are measured; L stays pinned to X and
+  U is local to Z by rule. `F`–`K`/`M`–`T` splits are reserved, B has no pathfinding, and every
+  pattern so far was validated on loopback — the WAN numbers are still being collected (WS4.2),
+  which is where the crossings show their real RTT cost. `mode` remains the legacy whole-pipeline
   fallback and is independent of `placement`.
+- **Mixed builds across tiers are the main operational risk.** WS3.5 changed *both* gateways and
+  Z's frame handling, so all three tiers must run the same commit. Y now stamps its build
+  (`Y_BUILD`) in `{"t":"version"}` and X stamps `X_BUILD` in every `placement_ok`; if a stale X
+  accepts a custom table without confirming chain support, Y prints a warning and the panel's
+  `chain (WS3.5)` line shows it instead of quietly running the chain on one tier.
 - **Leaderboard / U.** L is a SQLite file on X and U renders the ranked table on Z (WS3.4).
   Test runs are stored too, tagged `source: test`, so filter them out for a player-only table.
 - **Test panel UI.** WS2.1 (protocol/CLI) and WS2.2 (Tk panel) both exist; the CLI stays the

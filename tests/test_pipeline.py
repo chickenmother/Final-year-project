@@ -148,6 +148,43 @@ class WireFormatTests(unittest.TestCase):
         self.assertEqual(pipeline.bytes_per_tick("state", 9000, 0), 0.0)
 
 
+class ReportFieldsTests(unittest.TestCase):
+    """Every report has the WS3.5 keys, preset runs included (compare tooling)."""
+
+    def test_preset_run_records_zero_crossings(self):
+        fields = pipeline.report_fields({}, {})
+        self.assertEqual(fields["crossings"], 0)
+        self.assertEqual(fields["stalls"], 0)
+        self.assertIsNone(fields["stream_tier"])
+        self.assertIsNone(fields["pixels_format"])
+        self.assertIsNone(fields["encode_fps"])
+        self.assertEqual(fields["chain"], {})
+        self.assertEqual(fields["channels"], {})
+        self.assertEqual(fields["channels_x"], {})
+
+    def test_chain_run_reports_crossings_and_channels(self):
+        chain = Chain(table("XXYYY"))
+        channels = {"stalls": 2, "encode_frames": 120,
+                    "stage_p50": {"D": 1.2}, "pixel_fmt": "jpeg80"}
+        x_channels = {"stalls": 1, "stage_p50": {"A": 0.4}}
+        fields = pipeline.report_fields(channels, x_channels, chain,
+                                       "jpeg80", 59.5)
+        self.assertEqual(fields["crossings"], 1)
+        self.assertEqual(fields["stream_tier"], "Y")
+        self.assertEqual(fields["pixels_format"], "jpeg80")
+        self.assertEqual(fields["stalls"], 3)
+        self.assertEqual(fields["encode_fps"], 59.5)
+        self.assertEqual(fields["chain"], chain.pattern)
+        self.assertEqual(fields["stage_p50"], {"D": 1.2})
+        self.assertEqual(fields["stage_p50_x"], {"A": 0.4})
+
+    def test_chain_without_counters_still_has_a_shape(self):
+        fields = pipeline.report_fields(None, None, Chain(table("YYYYY")))
+        self.assertEqual(fields["crossings"], 0)
+        self.assertEqual(fields["stream_tier"], "Y")
+        self.assertIsNone(fields["pixels_format"])
+
+
 class ChannelStatsTests(unittest.TestCase):
     def test_counters_and_snapshot(self):
         stats = ChannelStats()

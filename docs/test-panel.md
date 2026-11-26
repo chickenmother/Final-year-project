@@ -312,6 +312,7 @@ Notes:
 | X keyframes/s, frame KB | keyframe storms and the average frame size |
 | X video | the encoder settings X confirmed |
 | placement | the task table Y applied (`applied`/rejected) |
+| chain (WS3.5) | full-width line: `N crossing(s) · stream <tier> · state <kB> · pixels <MB> · N stall(s)`; `-` for a preset, `⚠ …` for a build mismatch |
 | sim / hit / render / encode p50 | per-task compute per tier (A+B, C, D, E) |
 | offload | All Edge = —, Offload A/B = state upload KB/s |
 | Z decode | Z's H.264 decode time |
@@ -325,6 +326,7 @@ Notes:
 | *no End Z is connected* | start Z with `FYP_TEST=1` (or **Launch Z (test)**) |
 | Start stays greyed | a test is already active — Pause/Terminate first |
 | Leaderboard says Y closed the link | Y is older than `bd9a1f5`; pull `dev` and restart |
+| chain line shows `⚠ Cloud X (…) did not confirm chain support` | X is older than WS3.5 — pull `dev` on X and restart it, then re-apply the placement |
 
 ## WS2.3 — X runtime video/stats/stop
 
@@ -458,9 +460,13 @@ is local to Z by rule, so no table can move them.
   row — unlocks A–E. **Apply** stores the table on the plan, **Save** writes
   `placement_tasks`, and **Apply placement** pushes the table to Y's router.
 - **Router**: Y sends `{"t":"placement","tasks":{…},"custom":true}`; X accepts
-  any validated table and confirms `placement_ok`. A custom run pins `mode` to
-  the chain's **stream tier** (E), not to D, and `on_game_start` re-applies that
-  pin.
+  any validated table and confirms `placement_ok` with `"custom":true` and its build
+  (`"x":"ws3.5"`). A custom run pins `mode` to the chain's **stream tier** (E), not
+  to D, and `on_game_start` re-applies that pin. If X confirms the table but not
+  the chain (an older build), Y prints
+  `WARNING: Cloud X (<build>) did not confirm chain support` and the live
+  `chain (WS3.5)` line shows `⚠ …` — mixed builds are the first thing to check
+  when a chain "runs" but looks like a single tier.
 - **Execution**: a tick starts at A's tier. Each tier runs the longest local run
   of stages and forwards at a crossing: `{"t":"stage","stage":"C","tick":n,
   "seq":k,"keys":"d","s":{snapshot}}`. The tier that finishes the chain (E)
@@ -477,6 +483,9 @@ is local to Z by rule, so no table can move them.
 - **Report**: `environment.crossings`, `stream_tier`, `pixels_format`,
   `channels` (Y) and `channels_x` (X) with state/pixel message counts and bytes,
   `mirror`, `stalls`/`stall_ticks`, `encode_fps`, `stage_p50`/`stage_p50_x`.
+  All of these keys exist on **every** report: a preset run records `crossings: 0`,
+  `stalls: 0` and empty channels (`common/pipeline.report_fields`), so the
+  comparison tooling reads one shape for presets and chains alike.
 - **Plans**: `tools/plans/ws3_5_*.json` — `pipeline_on_y`, `split_ab`,
   `pixels`, `pixels_30s`, `pixels_raw`, `all_on_y` and `smoke_*` for the presets.
   `tools/report_peek.py <report.json>` prints the chain fields of one report.

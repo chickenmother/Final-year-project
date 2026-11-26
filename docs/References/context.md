@@ -24,11 +24,14 @@ Only one Y and one Z at a time. Placement is not fixed; I test combinations.
   WS3.1 All Cloud, WS3.2 Offload A/B and WS3.3 All Edge shipped (`common/placement.py`,
   `game/simulation.py` A+B/C split); WS3.4 L (SQLite on X) + U leaderboard view shipped
   (`common/leaderboard.py`, `ui/leaderboard.py`); WS3.4.1 safe test overlay shipped.
-- WS3.5 free placement shipped on `feature/ws3.5-free-placement`: `Chain`/`resolve_chain`
-  (`common/placement.py`), `common/pipeline.py` (routing, counters, `stage`/`final`/`stride`/
-  `pixels` wire format), `step_a`/`step_b` (`game/simulation.py`), generic chain executors in
-  `y_gateway.py`/`x_server.py`, panel A–E rows, report `crossings`/`stream_tier`/`pixels_format`/
-  `channels`/`stalls`/`encode_fps`/`stage_p50`. 151 tests.
+- WS3.5 free placement shipped on `dev` (`feature/ws3.5-free-placement` fast-forwarded):
+  `Chain`/`resolve_chain` (`common/placement.py`), `common/pipeline.py` (routing, counters,
+  `stage`/`final`/`stride`/`pixels` wire format, `report_fields`), `step_a`/`step_b`
+  (`game/simulation.py`), generic chain executors in `y_gateway.py`/`x_server.py`, panel A–E rows
+  + a full-width `chain (WS3.5)` line, report `crossings`/`stream_tier`/`pixels_format`/
+  `channels`/`stalls`/`encode_fps`/`stage_p50` (present on preset runs too, as 0/empty), and
+  build stamps (`Y_BUILD`/`X_BUILD`) with a `chain_warning` when an old X accepts a custom table
+  without confirming chain support. 155 tests; `tools/check_plans.py` loads all 18 plans.
 - Lab X pulled to `cda0f52` (WS1.2) and needs a pull for WS2.3/WS3.x/WS3.5; those E2Es used a
   local X. No X/Y/Z left running (the E2E tiers were stopped). One Y and one Z at a time.
 - WS1.3 complete: `20261123-153034`. WS2.2: `20261123-161423`. WS2.3: `20261123-164025`.
@@ -40,6 +43,8 @@ Only one Y and one Z at a time. Placement is not fixed; I test combinations.
   All Edge 17.6 / A-B on X + C-E on Y 13.4 / split A/B 15.5 / A-D on X + E on Y (JPEG, 30 s
   medium) 28.1 at 60 fps / A-D on Y + E on X (raw) 30.0 at ~47 fps / A-E on Y 12.4. Reports:
   `20261124-143954`, `-144012`, `-144129`, `-144414`, `-144629`, `-145508`, `-145259`, `-144955`.
-- Next: WAN runs of the three presets (pull the lab X first) → `tools/compare_reports.py
+- Next: WAN runs of the three presets — pull **X and Y** (and Z) to the current commit first, since
+  WS3.5 changed both gateways and Z's frame handling — then `tools/compare_reports.py
   --workload medium`; then the WS3.5 chain matrix over the WAN and the chain columns in the
-  comparison tool (F3). Roadmap/schedule: `docs/References/roadmap.md`.
+  comparison tool (F3). Fine tuning and the release tag come after that.
+  Roadmap/schedule: `docs/References/roadmap.md`.

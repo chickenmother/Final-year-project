@@ -84,6 +84,26 @@ class PlanEditingTests(unittest.TestCase):
         self.assertIn("state 3 kB", line)
         self.assertIn("pixels 3.0 MB", line)
         self.assertIn("0 stall(s)", line)
+        # A preset run has no chain counters, so the panel shows "-".
+        self.assertEqual(pm.chain_line({"channels": {}, "x_channels": {},
+                                        "chain_crossings": 0}), "-")
+        # A chain that never crosses (A-E on Y) still reports its stream tier.
+        self.assertEqual(pm.chain_line({"chain_crossings": 0,
+                                        "channels": {"stream_tier": "Y"}}),
+                         "0 crossing(s) · stream Y · 0 stall(s)")
+        # ...and the counters' own crossing count is used when state lacks it.
+        self.assertEqual(pm.chain_line({"channels": {"stream_tier": "X",
+                                                     "crossings": 2}}),
+                         "2 crossing(s) · stream X · 0 stall(s)")
+
+    def test_chain_line_warning_wins(self):
+        """A stale Cloud X must be visible even with live counters (WS3.5)."""
+        line = pm.chain_line({
+            "chain_warning": "Cloud X (ws3.4) did not confirm chain support",
+            "channels": {"stream_tier": "Y", "stalls": 0},
+        })
+        self.assertTrue(line.startswith("⚠ "))
+        self.assertIn("did not confirm chain support", line)
 
     def test_chain_summary_and_titles(self):
         self.assertIn("legacy", pm.chain_summary({}))

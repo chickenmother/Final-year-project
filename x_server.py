@@ -33,6 +33,7 @@ placement_owner = list(TASKS)           # tasks Cloud X currently runs (WS3.1)
 leaderboard = None                      # L: SQLite store on X (WS3.4)
 chain = None                            # WS3.5 custom stage chain
 chain_stats = ChannelStats()            # crossings/stalls/stage timings
+X_BUILD = "ws3.5"                       # advertised in every placement_ok (WS3.5)
 
 
 async def apply_video(m):
@@ -425,7 +426,7 @@ async def handler(ws):
                     print(f"[{time.strftime('%X')}] X chain: "
                           f"{chain.describe()}")
                     await send(json.dumps({
-                        "t": "placement_ok", "custom": True,
+                        "t": "placement_ok", "custom": True, "x": X_BUILD,
                         "tasks": {task: "X" for task in placement_owner}}))
                     continue
                 chain = None
@@ -454,7 +455,7 @@ async def handler(ws):
                 print(f"[{time.strftime('%X')}] X placement: tasks {owned}" +
                       (" (All Edge: X idle, L only)" if edge_only
                        else " (A/B from Y state)" if remote_ab else ""))
-                await send(json.dumps({"t": "placement_ok",
+                await send(json.dumps({"t": "placement_ok", "x": X_BUILD,
                                        "tasks": {task: "X" for task in owned}}))
             elif t == "task":
                 # WS3.4: L is pinned to X, so Y routes every score here.

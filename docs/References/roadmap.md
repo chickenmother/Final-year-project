@@ -1,8 +1,9 @@
 # Roadmap, schedule and workstreams
 
-Status: 2026-11-23. Branch `feature/Cloud_X`, HEAD `57e2fe5`. This file is the single
-source of truth for workstreams, schedule and current progress. The WS naming/docs and
-WS1.3 are committed; the dev/feature/release model is in `docs/References/branches.md`.
+Status: 2026-11-26. Branch `dev`, HEAD `1ca6e31` (`feature/ws3.5-free-placement` fast-forwarded into
+it; `main` is still the PR #1 merge at `1c1d06e` and no tag exists since `v0.4-ws2.2`). This file is
+the single source of truth for workstreams, schedule and current progress; the dev/feature/release
+model is in `docs/References/branches.md`.
 
 ## Naming
 
@@ -35,6 +36,7 @@ WS1.3 are committed; the dev/feature/release model is in `docs/References/branch
 | **Done** | WS3.2 | Offload A/B | A/B on Y; C-E/L on X; E2E `20261124-115317`; comparison report | 2 sessions |
 | **Done** | WS3.3 | All Edge + Pinned L | C/D/E on Y; L on X; E2E `20261124-120713` | 2 sessions |
 | **Done** | WS3.4 | L SQLite + U leaderboard view | store on X, submit/top through Y, ranked screen on Z | 2 sessions |
+| **Done** | WS3.5 | Free placement (any A–E chain) | F1 model/plan/panel + F2 chain executor, pixels channel, build guard; 8-run local matrix below | 4 sessions |
 | **Now** | WS4.2 | Comparison report | tooling done (`tools/compare_reports.py`); WAN runs pending | 2-3 sessions |
 | **Final** | WS4.3 | Docs/archive/final report | README/AGENTS/sync and report complete | ongoing |
 
@@ -44,13 +46,15 @@ metrics and (for Offload A/B) the upload cost, and L/U provide the leaderboard. 
 comparison report) is the remaining research deliverable; WS4.3 runs throughout.
 Adjust the sequence to the FYP deadline.
 
-## Current state (verified 2026-11-24)
+## Current state (verified 2026-11-26)
 
-- Repo on `feature/ws3.5-free-placement` (branched from `dev` @ `388b468`).
-- WS3.4.1 (safe test overlay) is pushed and fast-forwarded on `dev`; WS3.5 (free task
-  placement) is implemented and validated locally on this branch.
+- Repo on `dev` @ `1ca6e31`; `feature/ws3.5-free-placement` was fast-forwarded into it. `main` stays
+  at `1c1d06e` (PR #1) until the release; the only tag is `v0.4-ws2.2`.
+- WS3.4.1 (safe test overlay) and WS3.5 (free task placement) are implemented, documented and
+  validated on loopback; the WAN runs are the open item.
 - Lab X is at `cda0f52` (WS1.2) and must be pulled to the current commit for the next lab run;
-  the WS3.1–WS3.5 checks used a local X.
+  the WS3.1–WS3.5 checks used a local X. Y now warns (`chain_warning`, panel `⚠`) if a stale X
+  accepts a custom table without confirming chain support.
 - No X/Y/Z left running: the E2E tiers were stopped after the run (AGENTS cleanup rule).
 - Reports: WS1.1 A0/A1/A2, WS1.3-A1 `20261123-153034`, WS2.2 `20261123-161423`, WS2.3
   `20261123-164025`, WS3.1 All Cloud `20261124-111232`, WS3.2 Offload A/B `20261124-115317`,
@@ -76,14 +80,14 @@ Adjust the sequence to the FYP deadline.
   The JPEG D→E hop costs ~15 ms of e2e at 1280x720/60 (88 KB per frame); raw costs
   ~120 MB/s and drops Z to ~47 fps without a stall or an IDR loop, because the sender
   declares its stride so Z never mistakes a gap for a lost packet.
-- Validation gate: 151 unit tests, selftest hash `30f043...`, and all test plans load.
+- Validation gate: 155 unit tests, selftest hash `30f043...`, `tools/check_plans.py` (18/18 plans).
 
 ## Current progress
 
 | Item | Status | Notes |
 |---|---|---|
 | WS0.1 Game core | Done | task-oriented core, entities, waves, snapshot/restore |
-| WS0.2 Menu/overlay/game-over | Partial | leaderboard view still a placeholder |
+| WS0.2 Menu/overlay/game-over | Done | menu, pause/game-over overlays, config editor; the ranked screen landed in WS3.4 |
 | WS0.3 Baseline 3-tier | Done | X authoritative + Y fallback + Z display |
 | WS1.1 Baseline | Done/archived | presets A0/A1/A2 under `logs/raw/phaseA_*` |
 | WS1.2 Keyframe fix | Code done | `7d54592`; lab X at `cda0f52`; local 60 fps, 0 skips, 0.55 kf/s |
@@ -99,6 +103,7 @@ Adjust the sequence to the FYP deadline.
 | WS3.4.1 Safe test overlay | Done | `safe` config on `test_start`, Z deep-merges; `FYP_TEST_SAFE=0` opt-out |
 | WS3.5 Free placement (F1) | Done | `Chain`/`resolve_chain`/`describe_chain`, `placement: custom` + `placement_tasks`, panel A-E rows, L pinned |
 | WS3.5 Chain executor (F2) | Done | `common/pipeline.py` routing + wire format, `step_a`/`step_b`, Y/X generic executors, pixels channel (JPEG/raw), stride declaration |
+| WS3.5 Reporting + build guard | Done | `pipeline.report_fields` (every report has `crossings`/`stalls`, 0 on presets), `Y_BUILD`/`X_BUILD` stamps, `chain_warning` + panel `⚠` |
 | WS4.1 Local/lab validation | Ongoing | repeatable runs; duplicate-process hygiene |
 | WS4.2 Comparison report | Tooling done | `common/compare.py` + `tools/compare_reports.py`; 9 tests; local table generated; WAN runs pending |
 | WS4.3 Docs/archive | Ongoing | this roadmap; README/AGENTS/sync |
@@ -117,11 +122,13 @@ first-frame e2e ~13.1 ms, decode ~3.9 ms; intra-refresh max frame ~17 KB.
 ## Next step
 
 1. Keep the WS1.3 `20261123-153034`, WS2.2 `20261123-161423`, WS2.3 `20261123-164025`, WS3.1 `20261124-111232`, WS3.2 `20261124-115317`, WS3.3 `20261124-120713`, comparison `20261124-120640`, game-over `20261124-124706` and WS3.5 matrix reports with the archive.
-2. Run the three patterns over the real WAN (pull the lab X to the current commit first), then
+2. Pull **X and Y** to the current commit (WS3.5 changed both gateways and Z's frame handling; Z too),
+   run the three patterns over the real WAN, then
    `tools/compare_reports.py --workload medium --out logs\reports\comparison_wan.md`.
 3. Repeat the WS3.5 chain matrix over the WAN (the two-tier hops are where the crossings cost real
-   RTT), and add the chain columns to the comparison tool (F3).
-4. WS4.3: fold the WAN table into the README/docs and tag the release.
+   RTT) and fold the chain columns into the comparison tool (F3, optional).
+4. Fine tuning after the WAN runs (the user's call), then WS4.3: fold the WAN table into the
+   README/docs, merge `dev` → `main` and tag the release (`v0.5-ws3.5` or later).
 
 ## Old -> new mapping
 
@@ -151,9 +158,14 @@ evidence stays traceable; this file is the mapping.
 ## Risks / blockers
 
 - Duplicate Y/Z processes invalidate runs; only one pair at a time (AGENTS cleanup rule).
-- WS1.3 needs the lab X listening and a stable A1/Z configuration for comparison.
-- The task router/placement (WS3) is the largest remaining block; L and U are placeholders.
-- Final report needs WS1.3 and WS3.2/3.3 results; do not overrun the FYP schedule.
+- **All three tiers must run the same commit for a WAN run.** The lab X is at `cda0f52`; WS3.5
+  changed both gateways and Z's frame handling. Pull X *and* Y (and Z), then confirm
+  `X tasks: … (build ws3.5)` on Y. A stale X shows up as `⚠` on the panel's chain line rather than
+  a silently one-tier chain.
+- The D→E pixel split re-renders on the sending tier for the JPEG payload (correct, not optimal),
+  and only 8 of the 32 A–E assignments have been run live (the model test covers all 32).
+- WS4.2 needs the WAN numbers; final report and release tag wait for them (and for the tuning the
+  user still wants).
 - No commit/push unless explicitly requested; lab X no pull until asked.
 
 ## Related docs

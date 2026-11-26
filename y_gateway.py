@@ -39,7 +39,8 @@ state = {"mode": "X", "rtt": 0.0, "rtt_zy": 0.0, "lag": 0, "delay_ms": 0,
          "x_placement": {}, "task_stats": {}, "offload": {}, "remote_ab": False,
          "edge_only": False, "leaderboard": [], "reports": [],
          "chain": {}, "chain_crossings": 0, "chain_desc": "",
-         "channels": {}, "x_channels": {}, "stalls": 0}
+         "channels": {}, "x_channels": {}, "stalls": 0,
+         "x_build": "", "x_chain": None, "chain_warning": ""}
 inp = {"keys": "", "seq": 0, "latch": False}
 zs = {}                # Z connection -> frame queue + capability slot
 last_fwd, bad, good_since = 0, 0, None
@@ -58,7 +59,7 @@ offload = {"n": 0, "bytes": 0, "kb_s": 0.0, "total": 0}   # WS3.2 state upload
 offload_window = collections.deque()   # (t, bytes) over the last second
 edge_over_sent = False                 # WS3.3: Y owns the game-over event
 lb_pending = {}                        # ws -> timeout task for a pending L request
-Y_BUILD = "ws3.4"                      # advertised by {"t":"version"}
+Y_BUILD = "ws3.5"                      # advertised by {"t":"version"}
 # WS3.4.1: a measurement must not end early, so tests overlay a safe player on
 # Z's own config (FYP_TEST_SAFE=0 restores the raw match tuning).  Bot *bullets*
 # are the damage source during a normal match, so they are zeroed as well.
@@ -195,7 +196,8 @@ async def _lb_timeout(ws):
     try:
         await ws.send(json.dumps({"t": "leaderboard", "rows": [],
                                   "error": "L did not answer within 2.5 s "
-                                           "(is Cloud X running ws3.4?)"}))
+                                           "(is Cloud X running the current "
+                                           "build?)"}))
     except (ConnectionClosed, OSError):
         pass
 
@@ -365,8 +367,21 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
             # WS3.1: Cloud X confirms the tasks Y's router gave it.
             state["x_placement"] = dict(m.get("tasks") or {})
             state["placement_applied"] = True
+            state["x_build"] = str(m.get("x") or "")
+            state["x_chain"] = bool(m.get("custom"))
+            if chain is not None and not state["x_chain"]:
+                # A pre-WS3.5 X accepts the table but keeps its preset path,
+                # so the chain would silently run on one tier (WAN check).
+                state["chain_warning"] = (
+                    f"Cloud X ({state['x_build'] or 'unknown build'}) did not "
+                    f"confirm chain support; pull X to ws3.5")
+                print(f"[{time.strftime('%X')}] WARNING: "
+                      f"{state['chain_warning']}")
+            else:
+                state["chain_warning"] = ""
             print(f"[{time.strftime('%X')}] X tasks: "
-                  f"{', '.join(state['x_placement'])}")
+                  f"{', '.join(state['x_placement'])}" +
+                  (f" (build {state['x_build']})" if state["x_build"] else ""))
         elif m["t"] == "error" and m.get("command") == "placement":
             state["placement_applied"] = False
             print(f"[{time.strftime('%X')}] placement rejected by X: "
@@ -844,6 +859,7 @@ class TestRunner:
         state["placement"] = table or {}
         state["placement_pattern"] = plan.placement
         state["placement_applied"] = False
+        state["chain_warning"] = ""        # WS3.5: cleared per run
         state["edge_only"] = edge_pipeline(table)
         # A/B on Y alone does not mean "ship the state up": with the whole
         # pipeline on Y (All Edge) X is idle, so there is nothing to upload.
@@ -1138,30 +1154,18 @@ class TestRunner:
             "mode_final": state.get("mode"),
         }
         channels = state.get("channels") or {}
-        if chain is not None or channels:
-            # WS3.5: what the chain cost and where it crossed.
-            x_channels = state.get("x_channels") or {}
-            environment.update({
-                "chain": state.get("chain") or {},
-                "crossings": int(state.get("chain_crossings") or 0),
-                "stream_tier": (chain.stream_tier if chain is not None
-                                else None),
-                "pixels_format": (channels.get("pixel_fmt")
-                                  or (P.pixel_format(raw=PIXELS_RAW,
-                                                     quality=C.Y_QUALITY)
-                                      if chain is not None
-                                      and chain.pixel_channel else None)),
-                "channels": channels,
-                "channels_x": x_channels,
-                "stalls": (int(channels.get("stalls") or 0)
-                           + int(x_channels.get("stalls") or 0)),
-                "encode_fps": ((channels.get("encode_frames") or 0)
-                               + (x_channels.get("encode_frames") or 0))
-                              / max(0.001, self._elapsed()
-                                    + self.plan.warmup_s),
-                "stage_p50": channels.get("stage_p50") or {},
-                "stage_p50_x": x_channels.get("stage_p50") or {},
-            })
+        x_channels = state.get("x_channels") or {}
+        # WS3.5: every report carries the chain keys; a preset run records
+        # 0 crossings / 0 stalls instead of omitting them (compare tooling).
+        pixels_fmt = (P.pixel_format(raw=PIXELS_RAW, quality=C.Y_QUALITY)
+                      if chain is not None and chain.pixel_channel else None)
+        encode_fps = None
+        if chain is not None:
+            encode_fps = ((channels.get("encode_frames") or 0)
+                          + (x_channels.get("encode_frames") or 0)) \
+                / max(0.001, self._elapsed() + self.plan.warmup_s)
+        environment.update(P.report_fields(channels, x_channels, chain,
+                                          pixels_fmt, encode_fps))
         try:
             report = report_mod.build(self.plan, started, ended, self.samples,
                                       self.events, environment,
