@@ -1088,8 +1088,8 @@ HEAD   : WS3.5 free placement + docs truth pass + build stamps
     channels/channels_x populated, no chain_warning (X confirmed custom). Both reports are LIGHT,
     so `compare_reports.py --workload medium` ignores them.
   - Tiers stopped, temp logs\smk_*.out/err removed; nothing left listening on 8010/8011/8012.
-  - Not pushed yet at the time of writing (no push without an explicit request); the tag is
-    deliberately deferred until after the WAN runs + fine tuning.
+  - Pushed to origin/dev (no tag yet — the release tag is deliberately deferred until after the
+    WAN runs and the fine tuning).
   - Next: pull X and Y (and Z), run the three presets over the WAN, compare_reports --workload
     medium, then the WS3.5 chain matrix over the WAN.
 
