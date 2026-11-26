@@ -31,7 +31,7 @@ Only one Y and one Z at a time. Placement is not fixed; I test combinations.
   + a full-width `chain (WS3.5)` line, report `crossings`/`stream_tier`/`pixels_format`/
   `channels`/`stalls`/`encode_fps`/`stage_p50` (present on preset runs too, as 0/empty), and
   build stamps (`Y_BUILD`/`X_BUILD`) with a `chain_warning` when an old X accepts a custom table
-  without confirming chain support. 155 tests; `tools/check_plans.py` loads all 18 plans.
+  without confirming chain support. 158 tests; `tools/check_plans.py` loads all 18 plans.
 - Lab X pulled to `cda0f52` (WS1.2) and needs a pull for WS2.3/WS3.x/WS3.5; those E2Es used a
   local X. No X/Y/Z left running (the E2E tiers were stopped). One Y and one Z at a time.
 - WS1.3 complete: `20261123-153034`. WS2.2: `20261123-161423`. WS2.3: `20261123-164025`.

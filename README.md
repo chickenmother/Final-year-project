@@ -887,7 +887,7 @@ version lines too: a different Python version is the most likely reason for a mi
 
 Covers the game core (including the `step_a`/`step_b`/`step_c` splits), config clamping,
 snapshot/restore determinism, test-plan validation/timeline, report writing, the panel model and
-the WS3.5 placement/chain model (155 tests). `tools/check_plans.py` loads and validates every
+the WS3.5 placement/chain model (158 tests). `tools/check_plans.py` loads and validates every
 bundled plan, so a plan-schema change cannot silently break `tools/plans/*.json`.
 
 ### Test runner

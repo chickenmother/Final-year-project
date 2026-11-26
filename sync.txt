@@ -1060,7 +1060,7 @@ HEAD   : WS3.5 free placement + docs truth pass + build stamps
   - Docs: README's "task-level placement is partially implemented" limitation now states what is
     true (All Cloud / Offload A/B / All Edge / any A-E chain run and are measured; F-K/M-T are
     reserved; WAN numbers pending) and gains a "mixed builds are the main operational risk" entry.
-    README WS3.5 section documents report_fields + the build guard; unit-test note says 155 tests
+    README WS3.5 section documents report_fields + the build guard; unit-test note says 158 tests
     and mentions tools/check_plans.py.
   - Docs: roadmap header/current-state/risks refreshed for dev @ 1ca6e31; WS3.5 added to the
     schedule; WS0.2 marked done (the ranked screen landed in WS3.4); next step says pull X AND Y
@@ -1077,8 +1077,10 @@ HEAD   : WS3.5 free placement + docs truth pass + build stamps
     mismatch.
   - z_client: the leaderboard probe/timeout messages talk about "the current build" instead of
     hard-coded "ws3.4".
-  - Gate: 155 tests OK (4 new: report_fields x3, chain warning), selftest hash
+  - Gate: 158 tests OK (7 new: report_fields x3, chain_warning x3, panel warning), selftest hash
     30f043222e75fabf0ec80d2cd7edf6df unchanged, tools/check_plans.py 18/18.
+  - The guard itself is now `common.pipeline.chain_warning(chain, reply)`, so the stale-X branch
+    is unit-tested without needing an old tier on the network.
   - Live check (isolated ports 8010-8012, headless Z, 8-10 s plans):
     20261126-145537 (all_cloud preset) -> crossings 0, stalls 0, stream_tier null,
     channels {} (keys present, as intended); Y logged "X tasks: A, B, C, D, E, L (build ws3.5)".

@@ -80,7 +80,7 @@ Adjust the sequence to the FYP deadline.
   The JPEG D→E hop costs ~15 ms of e2e at 1280x720/60 (88 KB per frame); raw costs
   ~120 MB/s and drops Z to ~47 fps without a stall or an IDR loop, because the sender
   declares its stride so Z never mistakes a gap for a lost packet.
-- Validation gate: 155 unit tests, selftest hash `30f043...`, `tools/check_plans.py` (18/18 plans).
+- Validation gate: 158 unit tests, selftest hash `30f043...`, `tools/check_plans.py` (18/18 plans).
 
 ## Current progress
 

@@ -369,16 +369,12 @@ async def on_x_msg(msg):               # message from X, AFTER the simulated dow
             state["placement_applied"] = True
             state["x_build"] = str(m.get("x") or "")
             state["x_chain"] = bool(m.get("custom"))
-            if chain is not None and not state["x_chain"]:
-                # A pre-WS3.5 X accepts the table but keeps its preset path,
-                # so the chain would silently run on one tier (WAN check).
-                state["chain_warning"] = (
-                    f"Cloud X ({state['x_build'] or 'unknown build'}) did not "
-                    f"confirm chain support; pull X to ws3.5")
+            # A pre-WS3.5 X accepts the table but keeps its preset path, so the
+            # chain would silently run on one tier (checked before a WAN run).
+            state["chain_warning"] = P.chain_warning(chain, m)
+            if state["chain_warning"]:
                 print(f"[{time.strftime('%X')}] WARNING: "
                       f"{state['chain_warning']}")
-            else:
-                state["chain_warning"] = ""
             print(f"[{time.strftime('%X')}] X tasks: "
                   f"{', '.join(state['x_placement'])}" +
                   (f" (build {state['x_build']})" if state["x_build"] else ""))

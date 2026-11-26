@@ -185,6 +185,30 @@ class ReportFieldsTests(unittest.TestCase):
         self.assertIsNone(fields["pixels_format"])
 
 
+class BuildGuardTests(unittest.TestCase):
+    """A stale Cloud X must not look like a working chain (WAN safety net)."""
+
+    def test_confirmed_chain_has_no_warning(self):
+        chain = Chain(table("XXYYY"))
+        self.assertEqual(pipeline.chain_warning(
+            chain, {"t": "placement_ok", "custom": True, "x": "ws3.5"}), "")
+
+    def test_preset_run_has_no_warning(self):
+        # A preset reply carries no "custom"; that is correct when there is
+        # no chain to confirm.
+        self.assertEqual(pipeline.chain_warning(
+            None, {"t": "placement_ok", "x": "ws3.5"}), "")
+
+    def test_old_x_warns_with_its_build(self):
+        chain = Chain(table("XXYYY"))
+        message = pipeline.chain_warning(
+            chain, {"t": "placement_ok", "tasks": {"C": "X", "D": "X"}})
+        self.assertIn("unknown build", message)
+        self.assertIn("did not confirm chain support", message)
+        named = pipeline.chain_warning(chain, {"x": "ws3.4"})
+        self.assertIn("ws3.4", named)
+
+
 class ChannelStatsTests(unittest.TestCase):
     def test_counters_and_snapshot(self):
         stats = ChannelStats()

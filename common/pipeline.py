@@ -251,6 +251,21 @@ def report_fields(channels, x_channels, chain=None, pixels_fmt=None,
     }
 
 
+def chain_warning(chain, reply):
+    """WS3.5: warn when X accepted the table but did not confirm the chain.
+
+    ``reply`` is X's ``placement_ok``: a WS3.5 X echoes ``custom: true`` plus its
+    build. An older X confirms the tasks only, which would silently run the
+    chain on a single tier — the failure mode that looks like "it works" until
+    the numbers are wrong. Returns ``""`` when there is nothing to warn about.
+    """
+    if chain is None or bool((reply or {}).get("custom")):
+        return ""
+    build = (reply or {}).get("x") or "unknown build"
+    return (f"Cloud X ({build}) did not confirm chain support; "
+            f"pull X to ws3.5")
+
+
 # ---------------------------------------------------------------------------
 # Wire format for the custom chain (WS3.5).
 #
